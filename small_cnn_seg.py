@@ -7,7 +7,6 @@ import numpy as np
 import os
 import glob
 import cv2
-from libtiff import TIFF
 
 
 MODEL_PATH = './model.pth'
@@ -34,8 +33,8 @@ class RetinalSegDataset(Dataset):
         # torch image: C X H X W
         image = image.transpose((2, 0, 1))
         image = torch.from_numpy(image).float()
-        groundtruth_raw = TIFF.open(train_list[idx][1], mode='r')
-        groundtruth = groundtruth_raw.read_image()
+        groundtruth = cv2.imread(
+            self.data_list[idx][1], cv2.IMREAD_UNCHANGED)
         # width * height （* channel_num）
         groundtruth = cv2.resize(groundtruth, (15, 10))
         groundtruth = np.reshape(groundtruth, (-1))
@@ -78,7 +77,7 @@ for i in range(len(IMAGE_test_list)):
 train_data = RetinalSegDataset(train_list)
 test_data = RetinalSegDataset(test_list)
 
-train_loader = DataLoader(train_data, batch_size=2, shuffle=True)
+train_loader = DataLoader(train_data, batch_size=2, shuffle=True, num_workers=3)
 test_loader = DataLoader(test_data, batch_size=1)
 
 
@@ -117,6 +116,7 @@ class Net(nn.Module):
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = Net()
+epoch_loss = []
 epoch_saved = 0
 # check model
 if os.access(MODEL_PATH, os.F_OK):
@@ -125,7 +125,8 @@ if os.access(MODEL_PATH, os.F_OK):
     model.load_state_dict(checkpoint['model_state_dict'])
     # necessary!
     model.eval()
-    epoch_saved = checkpoint['epoch']
+    epoch_loss = checkpoint['epoch_loss']
+    epoch_saved = epoch_loss[len(epoch_loss) - 1]['epoch']
     print('————Model Loaded————')
 model.to(device)
 criterion = nn.MSELoss()
@@ -148,10 +149,6 @@ def train(model, epoch):
                 'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                     epoch, batch_idx * len(image), len(train_loader.dataset),
                     100. * batch_idx / len(train_loader), loss))
-    torch.save({
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-    }, MODEL_PATH)  # save model
 
 
 def test(model, epoch):
@@ -164,14 +161,18 @@ def test(model, epoch):
         label = label.to(device)
         output = model(image)
         # reduce memory usage!!
-        loss_per_epoch += float(criterion(output, label))
+        loss_per_epoch += criterion(output, label).item()
     loss_mean = loss_per_epoch / len(test_loader.dataset)
     print('Train Epoch: {} loss on test_data({} samples) is {:.6f}'.format(
         epoch, len(test_loader.dataset), loss_mean))
+    epoch_loss.append({'epoch': epoch, 'loss': loss_mean})
+    torch.save({
+            'epoch_loss': epoch_loss,
+            'model_state_dict': model.state_dict(),
+        }, MODEL_PATH)  # save model
 
 
-# def main():
-for epoch in range(1, 5):
+for epoch in range(1, 3001):
     train(model, epoch + epoch_saved)
     test(model, epoch + epoch_saved)
 print('****************train complete******************')
@@ -187,8 +188,5 @@ for batch_idx, batched_sample in enumerate(test_loader):
         output.size()), torch.zeros(output.size()))
     output = output.byte()
     label_test = output.numpy()
-    tif = TIFF.open('./test/{}.tif'.format(55 + batch_idx), mode='w')
-    tif.write_image(label_test)
+    cv2.imwrite('./test/{}.tif'.format(55 + batch_idx), label_test)
 
-# if __name__ == '__main__':
-#    main()
