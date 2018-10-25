@@ -118,6 +118,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = Net()
 epoch_loss = []
 epoch_saved = 0
+train_loss = 0
 # check model
 if os.access(MODEL_PATH, os.F_OK):
     checkpoint = torch.load(MODEL_PATH, map_location='cpu')
@@ -134,6 +135,8 @@ optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
 
 def train(model, epoch):
+    global train_loss
+    train_loss = 0
     for batch_idx, batched_sample in enumerate(train_loader):
         optimizer.zero_grad()
         image = batched_sample['image']
@@ -142,13 +145,16 @@ def train(model, epoch):
         label = label.to(device)
         output = model(image)
         loss = criterion(output, label)
+        train_loss += loss.item() * image.size()[0]
         loss.backward()
         optimizer.step()
         if batch_idx % 5 == 0:
             print(
                 'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                     epoch, batch_idx * len(image), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader), loss))
+                    100. * batch_idx / len(train_loader.dataset), loss))
+    train_loss = train_loss / len(train_loader.dataset)
+    print('train loss is:{:.6f}'.format(train_loss))
 
 
 def test(model, epoch):
@@ -165,7 +171,7 @@ def test(model, epoch):
     loss_mean = loss_per_epoch / len(test_loader.dataset)
     print('Train Epoch: {} loss on test_data({} samples) is {:.6f}'.format(
         epoch, len(test_loader.dataset), loss_mean))
-    epoch_loss.append({'epoch': epoch, 'loss': loss_mean})
+    epoch_loss.append({'epoch': epoch, 'train_loss': train_loss, 'test_loss': loss_mean})
     torch.save({
             'epoch_loss': epoch_loss,
             'model_state_dict': model.state_dict(),
@@ -190,4 +196,3 @@ for batch_idx, batched_sample in enumerate(test_loader):
     label_test = output.numpy()
     cv2.imwrite('./test/{}.tif'.format(55 + batch_idx), label_test)
 
-#add haha
