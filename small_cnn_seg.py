@@ -190,3 +190,4 @@ for batch_idx, batched_sample in enumerate(test_loader):
     label_test = output.numpy()
     cv2.imwrite('./test/{}.tif'.format(55 + batch_idx), label_test)
 
+#add haha
