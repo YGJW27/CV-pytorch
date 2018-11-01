@@ -1,13 +1,12 @@
+import glob
+import os
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-import numpy as np
-import os
-import glob
 import cv2
-
 
 MODEL_PATH = './model.pth'
 IMAGE_PATH = './retinal_optic/Original_Images/'
@@ -33,17 +32,15 @@ class RetinalSegDataset(Dataset):
         # torch image: C X H X W
         image = image.transpose((2, 0, 1))
         image = torch.from_numpy(image).float()
-        groundtruth = cv2.imread(
-            self.data_list[idx][1], cv2.IMREAD_UNCHANGED)
+        groundtruth = cv2.imread(self.data_list[idx][1], cv2.IMREAD_UNCHANGED)
         # width * height （* channel_num）
         groundtruth = cv2.resize(groundtruth, (15, 10))
         groundtruth = np.reshape(groundtruth, (-1))
         groundtruth = torch.from_numpy(groundtruth)
         groundtruth = groundtruth.float()
-        groundtruth = torch.where(
-            groundtruth > 0,
-            torch.ones(groundtruth.size()),
-            torch.zeros(groundtruth.size()))
+        groundtruth = torch.where(groundtruth > 0,
+                                  torch.ones(groundtruth.size()),
+                                  torch.zeros(groundtruth.size()))
         sample = {'image': image, 'label': groundtruth}
         return sample
 
@@ -53,8 +50,8 @@ GROUNDTRUTH_train_list = []
 IMAGE_train_glob = os.path.join(IMAGE_PATH, TRAIN_NAME, '*.' + IMAGE_FORMAT)
 # 获取文件夹下所有匹配文件路径
 IMAGE_train_list.extend(glob.glob(IMAGE_train_glob))
-GROUNDTRUTH_train_glob = os.path.join(
-    GROUNDTRUTH_PATH, TRAIN_NAME, '*.' + GROUNDTRUTH_FORMAT)
+GROUNDTRUTH_train_glob = os.path.join(GROUNDTRUTH_PATH, TRAIN_NAME,
+                                      '*.' + GROUNDTRUTH_FORMAT)
 # 获取文件夹下所有匹配文件路径
 GROUNDTRUTH_train_list.extend(glob.glob(GROUNDTRUTH_train_glob))
 
@@ -62,8 +59,8 @@ IMAGE_test_list = []
 GROUNDTRUTH_test_list = []
 IMAGE_test_glob = os.path.join(IMAGE_PATH, TEST_NAME, '*.' + IMAGE_FORMAT)
 IMAGE_test_list.extend(glob.glob(IMAGE_test_glob))
-GROUNDTRUTH_test_glob = os.path.join(
-    GROUNDTRUTH_PATH, TEST_NAME, '*.' + GROUNDTRUTH_FORMAT)
+GROUNDTRUTH_test_glob = os.path.join(GROUNDTRUTH_PATH, TEST_NAME,
+                                     '*.' + GROUNDTRUTH_FORMAT)
 GROUNDTRUTH_test_list.extend(glob.glob(GROUNDTRUTH_test_glob))
 
 train_list = []
@@ -77,7 +74,8 @@ for i in range(len(IMAGE_test_list)):
 train_data = RetinalSegDataset(train_list)
 test_data = RetinalSegDataset(test_list)
 
-train_loader = DataLoader(train_data, batch_size=2, shuffle=True, num_workers=3)
+train_loader = DataLoader(
+    train_data, batch_size=2, shuffle=True, num_workers=3)
 test_loader = DataLoader(test_data, batch_size=1)
 
 
@@ -149,10 +147,9 @@ def train(model, epoch):
         loss.backward()
         optimizer.step()
         if batch_idx % 5 == 0:
-            print(
-                'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                    epoch, batch_idx * len(image), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader.dataset), loss))
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                epoch, batch_idx * len(image), len(train_loader.dataset),
+                100. * batch_idx / len(train_loader.dataset), loss))
     train_loss = train_loss / len(train_loader.dataset)
     print('train loss is:{:.6f}'.format(train_loss))
 
@@ -171,11 +168,15 @@ def test(model, epoch):
     loss_mean = loss_per_epoch / len(test_loader.dataset)
     print('Train Epoch: {} loss on test_data({} samples) is {:.6f}'.format(
         epoch, len(test_loader.dataset), loss_mean))
-    epoch_loss.append({'epoch': epoch, 'train_loss': train_loss, 'test_loss': loss_mean})
+    epoch_loss.append({
+        'epoch': epoch,
+        'train_loss': train_loss,
+        'test_loss': loss_mean
+    })
     torch.save({
-            'epoch_loss': epoch_loss,
-            'model_state_dict': model.state_dict(),
-        }, MODEL_PATH)  # save model
+        'epoch_loss': epoch_loss,
+        'model_state_dict': model.state_dict(),
+    }, MODEL_PATH)  # save model
 
 
 for epoch in range(1, 3001):
@@ -190,9 +191,8 @@ for batch_idx, batched_sample in enumerate(test_loader):
     output = output.view(10, 15)
     output = output.to("cpu")
     print(output)
-    output = torch.where(output > 0.5, torch.ones(
-        output.size()), torch.zeros(output.size()))
+    output = torch.where(output > 0.5, torch.ones(output.size()),
+                         torch.zeros(output.size()))
     output = output.byte()
     label_test = output.numpy()
     cv2.imwrite('./test/{}.tif'.format(55 + batch_idx), label_test)
-
