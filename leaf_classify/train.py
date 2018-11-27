@@ -8,11 +8,12 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import cv2
 
-MODEL_PATH = './model.pth'
-IMAGE_PATH = 'E:/病虫害/病虫害/'
+IMAGE_PATH = 'D:/code/dataset/BingChongHai/'
 IMAGE_FORMATS = ['jpg', 'jpeg']  # 不区分大小写
 VALIDATION_PERCENTAGE = 10
 TEST_PERCENTAGE = 10
+
+train_loss = 0
 
 
 def Split_Dataset():
@@ -33,11 +34,11 @@ def Split_Dataset():
         for file_name in file_list:
             chance = np.random.randint(100)
             if chance < VALIDATION_PERCENTAGE:
-                valid_list.append([file_name, int(dir_name)])
+                valid_list.append([file_name, int(dir_name) - 1])
             elif chance < (VALIDATION_PERCENTAGE + TEST_PERCENTAGE):
-                test_list.append([file_name, int(dir_name)])
+                test_list.append([file_name, int(dir_name) - 1])
             else:
-                train_list.append([file_name, int(dir_name)])
+                train_list.append([file_name, int(dir_name) - 1])
     return (train_list, valid_list, test_list)
 
 
@@ -51,25 +52,163 @@ class Classify_Dataset(Dataset):
     def __getitem__(self, idx):
         image_raw = cv2.imread(self.data_list[idx][0], cv2.IMREAD_UNCHANGED)
         image = cv2.cvtColor(image_raw, cv2.COLOR_BGR2RGB)
-        cv2.cvtColor(image_raw, )
         image = cv2.resize(image, (1366, 1024))     # resize: width * height
         image = image.transpose((2, 0, 1))  # numpy image -> torch image
         image = torch.from_numpy(image).float()
+        image = image / 255.
 
         sample = {'image': image,
-                  'label': self.data_list[idx][1], 
+                  'label': self.data_list[idx][1],
                   'filename': self.data_list[idx][0]}
         return sample
 
 
+class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = nn.Conv2d(3, 8, 5, stride=1, padding=2)
+        self.pool1 = nn.MaxPool2d(2, stride=2)
+        self.conv2 = nn.Conv2d(8, 25, 5, stride=1, padding=2)
+        self.pool2 = nn.MaxPool2d(2, stride=2)
+        self.conv3 = nn.Conv2d(25, 64, 5, stride=1, padding=2)
+        self.pool3 = nn.MaxPool2d(2, stride=2)
+        self.conv4 = nn.Conv2d(64, 64, 5, stride=1, padding=2)
+        self.pool4 = nn.MaxPool2d(3, stride=3)
+        self.conv5 = nn.Conv2d(64, 64, 5, stride=1, padding=2)
+        self.pool5 = nn.MaxPool2d(3, stride=3)
+        self.fc1 = nn.Linear(19 * 14 * 64, 1000)
+        self.fc2 = nn.Linear(1000, 100)
+        self.fc3 = nn.Linear(100, 7)
+
+    def forward(self, x):
+        x = self.pool1(F.relu(self.conv1(x)))
+        x = self.pool2(F.relu(self.conv2(x)))
+        x = self.pool3(F.relu(self.conv3(x)))
+        x = self.pool4(F.relu(self.conv4(x)))
+        x = self.pool5(F.relu(self.conv5(x)))
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+
+def train(train_dataloader, model, criterion, optimizer, epoch, device):
+    # switch to train mode
+    model.train()
+
+    train_loss = 0
+    for batch_idx, batched_sample in enumerate(train_dataloader):
+        inputs = batched_sample['image']
+        inputs = inputs.to(device)
+        labels = batched_sample['label']
+        labels = labels.to(device)
+
+        output = model(inputs)
+        loss = criterion(output, labels)
+        train_loss += loss.item() * inputs.size(0)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        if batch_idx % 10 == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                epoch, batch_idx * len(inputs), len(train_dataloader.dataset),
+                100. * batch_idx / len(train_dataloader.dataset), loss))
+
+    train_loss = train_loss / len(train_dataloader.dataset)
+    print('train loss is:{:.6f}'.format(train_loss))
+
+
+def validate(valid_dataloader, model, criterion, epoch, device):
+    # switch to evaluate mode
+    model.eval()
+
+    with torch.no_grad():
+        correct = 0
+        total = 0
+        for batch_idx, batched_sample in enumerate(valid_dataloader):
+            inputs = batched_sample['image']
+            inputs = inputs.to(device)
+            labels = batched_sample['label']
+            labels = labels.to(device) 
+
+            output = model(inputs)
+            loss = criterion(output, labels)
+
+            _, predicted = torch.max(output.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+
+    print('Accuracy of the network on the validation images: {}%'.format(
+        100 * correct/total))
+
+
+def save_checkpoint(state, filename='model.pth'):
+    torch.save(state, filename)
+
+
+'''
+def accuracy(output, target, topk=(1,)):
+    """Computes the accuracy over the k top predictions for the specified values of k"""
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size[0]
+
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        res = []
+        for k in topk:
+            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            res.append(correct_k.mul_(100.0 / batch_size))
+        return res
+'''
+
 def main():
     [train_list, valid_list, test_list] = Split_Dataset()
+
     train_dataset = Classify_Dataset(train_list)
     valid_dataset = Classify_Dataset(valid_list)
     test_dataset = Classify_Dataset(test_list)
 
-    print('end')
+    train_dataloader = DataLoader(
+        train_dataset, batch_size=4, shuffle=True, num_workers=4)
+    valid_dataloader = DataLoader(valid_dataset, batch_size=1)
+    test_dataloader = DataLoader(test_dataset, batch_size=1)
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = Net()
+
+    # check model
+    if os.access(MODEL_PATH, os.F_OK):
+        print('=> loading checkpoint')
+        checkpoint = torch.load(MODEL_PATH, map_location='cpu')
+        # load model parameters
+        model.load_state_dict(checkpoint['model_state_dict'])
+        start_epoch = checkpoint['epoch']
+    else:
+        print('=> no checkpoint found')
+        start_epoch = 0
+
+    model.to(device)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+
+    for epoch in range(start_epoch, 30000):
+        # train and evaluate
+        train(train_dataloader, model, criterion, optimizer, epoch, device)
+        validate(valid_dataloader, model, criterion, epoch, device)
+        
+        # save checkpoint
+        save_checkpoint({
+            'epoch': epoch + 1,
+            'state_dict': model.state_dict()
+        })
+
+    print('end')
 
 if __name__ == "__main__":
     main()
