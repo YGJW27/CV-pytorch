@@ -8,15 +8,14 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import cv2
 
+MODEL_PATH = 'model.pth'
 IMAGE_PATH = 'D:/code/dataset/BingChongHai/'
 IMAGE_FORMATS = ['jpg', 'jpeg']  # 不区分大小写
 VALIDATION_PERCENTAGE = 10
 TEST_PERCENTAGE = 10
 
-train_loss = 0
 
-
-def Split_Dataset():
+def split_dataset():
     sub_dirs = [x[0] for x in os.walk(IMAGE_PATH)]
     sub_dirs.pop(0)
 
@@ -76,7 +75,7 @@ class Net(nn.Module):
         self.pool4 = nn.MaxPool2d(3, stride=3)
         self.conv5 = nn.Conv2d(64, 64, 5, stride=1, padding=2)
         self.pool5 = nn.MaxPool2d(3, stride=3)
-        self.fc1 = nn.Linear(19 * 14 * 64, 1000)
+        self.fc1 = nn.Linear(18 * 14 * 64, 1000)
         self.fc2 = nn.Linear(1000, 100)
         self.fc3 = nn.Linear(100, 7)
 
@@ -132,7 +131,7 @@ def validate(valid_dataloader, model, criterion, epoch, device):
             inputs = batched_sample['image']
             inputs = inputs.to(device)
             labels = batched_sample['label']
-            labels = labels.to(device) 
+            labels = labels.to(device)
 
             output = model(inputs)
             loss = criterion(output, labels)
@@ -145,7 +144,7 @@ def validate(valid_dataloader, model, criterion, epoch, device):
         100 * correct/total))
 
 
-def save_checkpoint(state, filename='model.pth'):
+def save_checkpoint(state, filename=MODEL_PATH):
     torch.save(state, filename)
 
 
@@ -167,15 +166,22 @@ def accuracy(output, target, topk=(1,)):
         return res
 '''
 
+
 def main():
-    [train_list, valid_list, test_list] = Split_Dataset()
+    [train_list, valid_list, test_list] = split_dataset()
+
+    torch.save({
+        'train_list': train_list,
+        'valid_list': valid_list,
+        'test_list': test_list
+    }, 'dataset_list.pth')
 
     train_dataset = Classify_Dataset(train_list)
     valid_dataset = Classify_Dataset(valid_list)
     test_dataset = Classify_Dataset(test_list)
 
     train_dataloader = DataLoader(
-        train_dataset, batch_size=4, shuffle=True, num_workers=4)
+        train_dataset, batch_size=3, shuffle=True, num_workers=4)
     valid_dataloader = DataLoader(valid_dataset, batch_size=1)
     test_dataloader = DataLoader(test_dataset, batch_size=1)
 
@@ -201,14 +207,15 @@ def main():
         # train and evaluate
         train(train_dataloader, model, criterion, optimizer, epoch, device)
         validate(valid_dataloader, model, criterion, epoch, device)
-        
+
         # save checkpoint
         save_checkpoint({
             'epoch': epoch + 1,
-            'state_dict': model.state_dict()
+            'model_state_dict': model.state_dict()
         })
 
     print('end')
+
 
 if __name__ == "__main__":
     main()
