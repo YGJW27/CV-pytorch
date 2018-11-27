@@ -33,11 +33,11 @@ def split_dataset():
         for file_name in file_list:
             chance = np.random.randint(100)
             if chance < VALIDATION_PERCENTAGE:
-                valid_list.append([file_name, int(dir_name) - 1])
+                valid_list.append([file_name, int(dir_name)])
             elif chance < (VALIDATION_PERCENTAGE + TEST_PERCENTAGE):
-                test_list.append([file_name, int(dir_name) - 1])
+                test_list.append([file_name, int(dir_name)])
             else:
-                train_list.append([file_name, int(dir_name) - 1])
+                train_list.append([file_name, int(dir_name)])
     return (train_list, valid_list, test_list)
 
 
@@ -77,7 +77,7 @@ class Net(nn.Module):
         self.pool5 = nn.MaxPool2d(3, stride=3)
         self.fc1 = nn.Linear(18 * 14 * 64, 1000)
         self.fc2 = nn.Linear(1000, 100)
-        self.fc3 = nn.Linear(100, 7)
+        self.fc3 = nn.Linear(100, 8)
 
     def forward(self, x):
         x = self.pool1(F.relu(self.conv1(x)))
@@ -168,13 +168,22 @@ def accuracy(output, target, topk=(1,)):
 
 
 def main():
-    [train_list, valid_list, test_list] = split_dataset()
+    if os.access('dataset_list.pth', os.F_OK):
+        print('=> loading dataset_list')
+        data_point = torch.load('dataset_list.pth', map_location='cpu')
+        
+        train_list = data_point['train_list']
+        valid_list = data_point['valid_list']
+        test_list = data_point['test_list']
+    else:
+        print('=> no dataset_list found')
+        [train_list, valid_list, test_list] = split_dataset()
 
-    torch.save({
-        'train_list': train_list,
-        'valid_list': valid_list,
-        'test_list': test_list
-    }, 'dataset_list.pth')
+        torch.save({
+            'train_list': train_list,
+            'valid_list': valid_list,
+            'test_list': test_list
+        }, 'dataset_list.pth')
 
     train_dataset = Classify_Dataset(train_list)
     valid_dataset = Classify_Dataset(valid_list)
@@ -213,8 +222,6 @@ def main():
             'epoch': epoch + 1,
             'model_state_dict': model.state_dict()
         })
-
-    print('end')
 
 
 if __name__ == "__main__":
