@@ -13,6 +13,7 @@ DATA_PATH = './sample/'
 OUTPUT_PATH = './output/'
 IMAGE_FORMAT = 'jpg'
 
+
 class Classify_Dataset(Dataset):
     def __init__(self, data_list):
         self.data_list = data_list
@@ -84,12 +85,12 @@ def test(test_dataloader, model, criterion, device):
             _, predicted = torch.max(output.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
-            
+
             filename = batched_sample['filename']
-            
+
             f.write(filename[0] + '  ')
             f.write(str(predicted[0].item()) + '\n')
-            
+
         f.close()
     print('Accuracy of the network on the validation images: {:.2f}%'.format(
         100 * correct/total))
@@ -122,25 +123,9 @@ def main():
 
     model.to(device)
     criterion = nn.CrossEntropyLoss()
-    #evaluate
+    # evaluate
     test(test_dataloader, model, criterion, device)
-
 
 
 if __name__ == "__main__":
     main()
-
-
-'''
-
-
-
-print('当前路径为：' + os.path.abspath('.'))
-
-image_list = []
-image_glob = os.path.join(DATA_PATH, '*.' + IMAGE_FORMAT)
-image_list.extend(glob.glob(image_glob))
-
-
-
-'''
