@@ -21,7 +21,7 @@ class Classify_Dataset(Dataset):
         return len(self.data_list)
 
     def __getitem__(self, idx):
-        image_raw = cv2.imread(self.data_list[idx][0], cv2.IMREAD_UNCHANGED)
+        image_raw = cv2.imread(self.data_list[idx], cv2.IMREAD_UNCHANGED)
         image = cv2.cvtColor(image_raw, cv2.COLOR_BGR2RGB)
         image = cv2.resize(image, (1366, 1024))     # resize: width * height
         image = image.transpose((2, 0, 1))  # numpy image -> torch image
@@ -29,8 +29,7 @@ class Classify_Dataset(Dataset):
         image = image / 255.
 
         sample = {'image': image,
-                  'label': self.data_list[idx][1],
-                  'filename': self.data_list[idx][0]}
+                  'filename': self.data_list[idx]}
         return sample
 
 
@@ -64,7 +63,7 @@ class Net(nn.Module):
         return x
 
 
-def test(test_dataloader, model, criterion, device):
+def test(test_dataloader, model, device):
     # switch to evaluate mode
     model.eval()
 
@@ -75,15 +74,10 @@ def test(test_dataloader, model, criterion, device):
         for batch_idx, batched_sample in enumerate(test_dataloader):
             inputs = batched_sample['image']
             inputs = inputs.to(device)
-            labels = batched_sample['label']
-            labels = labels.to(device)
 
             output = model(inputs)
-            loss = criterion(output, labels)
 
             _, predicted = torch.max(output.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
             
             filename = batched_sample['filename']
             
@@ -91,18 +85,11 @@ def test(test_dataloader, model, criterion, device):
             f.write(str(predicted[0].item()) + '\n')
             
         f.close()
-    print('Accuracy of the network on the validation images: {:.2f}%'.format(
-        100 * correct/total))
-
 
 def main():
-    if os.access('dataset_list.pth', os.F_OK):
-        print('=> loading dataset_list')
-        data_point = torch.load('dataset_list.pth', map_location='cpu')
-        test_list = data_point['test_list']
-    else:
-        print('=> no dataset_list found')
-        return -1
+    test_list = []
+    test_glob = os.path.join(DATA_PATH, '*.' + IMAGE_FORMAT)
+    test_list.extend(glob.glob(test_glob))
 
     test_dataset = Classify_Dataset(test_list)
     test_dataloader = DataLoader(test_dataset, batch_size=1)
@@ -112,35 +99,18 @@ def main():
 
     # check model
     if os.access(MODEL_PATH, os.F_OK):
-        print('=> loading checkpoint')
         checkpoint = torch.load(MODEL_PATH, map_location='cpu')
         # load model parameters
         model.load_state_dict(checkpoint['model_state_dict'])
     else:
-        print('=> no checkpoint found')
+        print('=> no model.pth found')
         return -1
 
     model.to(device)
-    criterion = nn.CrossEntropyLoss()
     #evaluate
-    test(test_dataloader, model, criterion, device)
+    test(test_dataloader, model, device)
 
 
 
 if __name__ == "__main__":
     main()
-
-
-'''
-
-
-
-print('当前路径为：' + os.path.abspath('.'))
-
-image_list = []
-image_glob = os.path.join(DATA_PATH, '*.' + IMAGE_FORMAT)
-image_list.extend(glob.glob(image_glob))
-
-
-
-'''

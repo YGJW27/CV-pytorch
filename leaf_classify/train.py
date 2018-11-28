@@ -120,7 +120,7 @@ def train(train_dataloader, model, criterion, optimizer, epoch, device):
     print('train loss is:{:.6f}'.format(train_loss))
 
 
-def validate(valid_dataloader, model, criterion, epoch, device):
+def validate(valid_dataloader, model, criterion, device):
     # switch to evaluate mode
     model.eval()
 
@@ -215,7 +215,7 @@ def main():
     for epoch in range(start_epoch, 30000):
         # train and evaluate
         train(train_dataloader, model, criterion, optimizer, epoch, device)
-        validate(valid_dataloader, model, criterion, epoch, device)
+        validate(valid_dataloader, model, criterion, device)
 
         # save checkpoint
         save_checkpoint({
