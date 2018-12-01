@@ -86,8 +86,8 @@ def test(test_dataloader, model, device):
 
             f.write(filename[0] + '  ')
             f.write(str(predicted[0].item()) + '  ')
-            f.write(
-                str('{:.2f}'.format((prob[0][predicted[0].item()].item())) + '\n'))
+            f.write('{:.2f}'.format(
+                (prob[0][predicted[0].item()].item())) + '\n')
 
             print('已完成识别: {:.0f}%'.format(
                 batch_idx / len(test_dataloader.dataset) * 100))
