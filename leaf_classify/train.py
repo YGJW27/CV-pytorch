@@ -9,7 +9,7 @@ from torch.utils.data import Dataset, DataLoader
 import cv2
 
 MODEL_PATH = 'model.pth'
-IMAGE_PATH = 'D:/code/dataset/BingChongHai/'
+IMAGE_PATH = '~/Documents/code/dataset/'
 IMAGE_FORMATS = ['jpg', 'jpeg']  # 不区分大小写
 VALIDATION_PERCENTAGE = 10
 TEST_PERCENTAGE = 10
@@ -114,7 +114,7 @@ def train(train_dataloader, model, criterion, optimizer, epoch, device):
         if batch_idx % 10 == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(inputs), len(train_dataloader.dataset),
-                100. * batch_idx / len(train_dataloader.dataset), loss))
+                100. * batch_idx * len(inputs)/ len(train_dataloader.dataset), loss))
 
     train_loss = train_loss / len(train_dataloader.dataset)
     print('train loss is:{:.6f}'.format(train_loss))
