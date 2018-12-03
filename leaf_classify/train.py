@@ -10,7 +10,7 @@ import cv2
 
 MODEL_PATH = 'model.pth'
 IMAGE_PATH = './dataset/'
-IMAGE_FORMATS = ['jpg', 'jpeg', 'JPG', 'JPEG']  # 不区分大小写
+IMAGE_FORMATS = ['jpg', 'jpeg', 'JPG', 'JPEG']  # windows下不区分大小写，ubuntu下区分
 VALIDATION_PERCENTAGE = 10
 TEST_PERCENTAGE = 10
 
