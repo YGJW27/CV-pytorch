@@ -9,8 +9,8 @@ from torch.utils.data import Dataset, DataLoader
 import cv2
 
 MODEL_PATH = 'model.pth'
-IMAGE_PATH = '~/Documents/code/dataset/'
-IMAGE_FORMATS = ['jpg', 'jpeg']  # 不区分大小写
+IMAGE_PATH = './dataset/'
+IMAGE_FORMATS = ['jpg', 'jpeg', 'JPG', 'JPEG']  # 不区分大小写
 VALIDATION_PERCENTAGE = 10
 TEST_PERCENTAGE = 10
 
@@ -171,7 +171,7 @@ def main():
     test_dataset = Classify_Dataset(test_list)
 
     train_dataloader = DataLoader(
-        train_dataset, batch_size=3, shuffle=True, num_workers=4)
+        train_dataset, batch_size=2, shuffle=True, num_workers=4)
     valid_dataloader = DataLoader(valid_dataset, batch_size=1)
     test_dataloader = DataLoader(test_dataset, batch_size=1)
 
@@ -193,7 +193,7 @@ def main():
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
-    for epoch in range(start_epoch, 30000):
+    for epoch in range(start_epoch, 200):
         # train and evaluate
         train(train_dataloader, model, criterion, optimizer, epoch, device)
         validate(valid_dataloader, model, criterion, device)
