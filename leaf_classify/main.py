@@ -15,7 +15,6 @@ parser.add_argument('data', metavar='PATH', help='path to image')
 parser.add_argument('-m', '--model', default='model.pth',
                     metavar='PATH', help='path to model')
 
-
 def main():
     args = parser.parse_args()
 
