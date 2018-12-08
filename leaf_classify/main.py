@@ -17,9 +17,9 @@ parser.add_argument('-m', '--model', default='model.pth',
 
 def main():
     args = parser.parse_args()
-
+    
     test_list = []
-    test_list.extend(args.data)
+    test_list.append(args.data)
 
     test_dataset = Classify_Dataset(test_list)
     test_dataloader = DataLoader(test_dataset, batch_size=1)
