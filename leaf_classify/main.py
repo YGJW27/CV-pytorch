@@ -1,3 +1,4 @@
+import argparse
 import glob
 import os
 
@@ -9,10 +10,36 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import cv2
 
-MODEL_PATH = 'model.pth'
-DATA_PATH = './sample/'
-OUTPUT_PATH = './output/'
-IMAGE_FORMAT = 'jpg'
+parser = argparse.ArgumentParser(description='Image Classifying')
+parser.add_argument('data', metavar='PATH', help='path to image')
+parser.add_argument('-m', '--model', default='model.pth',
+                    metavar='PATH', help='path to model')
+
+
+def main():
+    args = parser.parse_args()
+
+    test_list = []
+    test_list.extend(args.data)
+
+    test_dataset = Classify_Dataset(test_list)
+    test_dataloader = DataLoader(test_dataset, batch_size=1)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = Net()
+
+    # check model
+    if os.access(args.model, os.F_OK):
+        checkpoint = torch.load(args.model, map_location='cpu')
+        # load model parameters
+        model.load_state_dict(checkpoint['model_state_dict'])
+    else:
+        print('=> no model.pth found')
+        return -1
+
+    model.to(device)
+    # evaluate
+    test(test_dataloader, model, device)
 
 
 class Classify_Dataset(Dataset):
@@ -70,54 +97,15 @@ def test(test_dataloader, model, device):
     model.eval()
 
     with torch.no_grad():
-        correct = 0
-        total = 0
-        f = open(OUTPUT_PATH + 'out.txt', 'w')
         for batch_idx, batched_sample in enumerate(test_dataloader):
             inputs = batched_sample['image']
             inputs = inputs.to(device)
 
             output = model(inputs)
-            prob = F.softmax(output.data, dim=1)
 
             _, predicted = torch.max(output.data, 1)
 
-            filename = batched_sample['filename']
-
-            f.write(filename[0] + '  ')
-            f.write(str(predicted[0].item()) + '  ')
-            f.write('{:.2f}'.format(
-                (prob[0][predicted[0].item()].item())) + '\n')
-
-            print('已完成识别: {:.0f}%'.format(
-                batch_idx / len(test_dataloader.dataset) * 100))
-
-        f.close()
-
-
-def main():
-    test_list = []
-    test_glob = os.path.join(DATA_PATH, '*.' + IMAGE_FORMAT)
-    test_list.extend(glob.glob(test_glob))
-
-    test_dataset = Classify_Dataset(test_list)
-    test_dataloader = DataLoader(test_dataset, batch_size=1)
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = Net()
-
-    # check model
-    if os.access(MODEL_PATH, os.F_OK):
-        checkpoint = torch.load(MODEL_PATH, map_location='cpu')
-        # load model parameters
-        model.load_state_dict(checkpoint['model_state_dict'])
-    else:
-        print('=> no model.pth found')
-        return -1
-
-    model.to(device)
-    # evaluate
-    test(test_dataloader, model, device)
+            print(predicted[0].item())
 
 
 if __name__ == "__main__":
