@@ -82,8 +82,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
         optimizer.zero_grad()
 
         # Forward
-        kwargs = {'prob': args.drop}
-        output = model(data, **kwargs)
+        output = model(data, prob=args.drop)
         loss = F.cross_entropy(output, target)
 
         # Backword
@@ -93,7 +92,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
         optimizer.step()
 
         # Evaluate
-        if batch_idx % 10 == 0:
+        if batch_idx % 100 == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
@@ -114,7 +113,7 @@ def test(args, model, device, test_loader):
     test_loss /= len(test_loader.dataset)
     accuracy = correct / len(test_loader.dataset)
 
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {:.0f}%\n'.format(
+    print('\nTest set: Average loss: {:.4f}, Accuracy: {:.4f}%\n'.format(
         test_loss, 100. * accuracy))
 
 
@@ -133,7 +132,7 @@ def main():
     use_cuda = args.cuda and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
     torch.manual_seed(args.seed)
-    kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
+    kwargs = {'num_workers': 3, 'pin_memory': True} if use_cuda else {}
 
     train_loader = torch.utils.data.DataLoader(
         datasets.MNIST('../data', train=True, download=True,
@@ -147,7 +146,7 @@ def main():
                            transforms.ToTensor(),
                            transforms.Normalize((0.1307,), (0.3081,))
                        ])),
-        batch_size=1, shuffle=True, **kwargs)
+        batch_size=args.batchsize, shuffle=True, **kwargs)
 
     # network parameters
     IN_W = 28
