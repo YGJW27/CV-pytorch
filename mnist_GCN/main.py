@@ -16,7 +16,7 @@ class Graph_Conv(nn.Module):
         self.kernel_size = kernel_size
         self.kernel = nn.Linear(in_channels*kernel_size, out_channels)
         self.lambda_max = self.Lambda_max(laplacian)
-        self.laplacian = self.scaled_Laplacian(laplacian).to_sparse()
+        self.laplacian = nn.Parameter(self.scaled_Laplacian(laplacian).to_sparse(), requires_grad=False)
 
     def forward(self, input):
         """ input size: (Batch, Channel, Vertex)
