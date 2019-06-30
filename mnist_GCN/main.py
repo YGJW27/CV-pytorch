@@ -9,14 +9,13 @@ from graph import construction, coarsening
 
 
 class Graph_Conv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, laplacian):
+    def __init__(self, in_channels, out_channels, kernel_size, rescaled_Laplacian):
         super(Graph_Conv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
         self.kernel = nn.Linear(in_channels*kernel_size, out_channels)
-        self.lambda_max = self.Lambda_max(laplacian)
-        self.laplacian = nn.Parameter(self.scaled_Laplacian(laplacian).to_sparse(), requires_grad=False)
+        self.laplacian = nn.Parameter(rescaled_Laplacian.to_sparse(), requires_grad=False)
 
     def forward(self, input):
         """ input size: (Batch, Channel, Vertex)
@@ -34,7 +33,7 @@ class Graph_Conv(nn.Module):
         for k in range(2, self.kernel_size):
             x_k = 2 * torch.mm(self.laplacian, x[k-1]) - x[k-2]     # V, C*B
             x = torch.cat((x, x_k.unsqueeze(0)), dim=0)             # k+1, V, C*B
-        
+
         assert x.shape[0] == self.kernel_size
         x = x.view([self.kernel_size, V, C, B])         # K, V, C, B
         x = x.permute([3, 1, 2, 0]).contiguous()        # B, V, C, K
@@ -45,14 +44,6 @@ class Graph_Conv(nn.Module):
         x = x.permute([0, 2, 1]).contiguous()           # B, C_out, V
 
         return x
-
-    def Lambda_max(self, laplacian):
-        return torch.eig(laplacian)[0][:, 0].max()
-
-    def scaled_Laplacian(self, laplacian):
-        M, _ = laplacian.shape
-        laplacian = 2*laplacian / self.lambda_max - torch.ones(M, dtype=laplacian.dtype).diag()
-        return laplacian
 
 
 class Graph_MaxPool(nn.Module):
@@ -215,9 +206,9 @@ def main():
 
     # graph coarsening
     L, perm = coarsening.coarsen(W, 4)
-    L_torch_sparse = []
+    r_L_torch = []
     for l in L:
-        L_torch_sparse.append(torch.from_numpy(l.toarray()))
+        r_L_torch.append(torch.from_numpy(coarsening.rescaled_L(l).toarray()))
 
     kwargs = {'num_workers': 3, 'pin_memory': True} if use_cuda else {}
     train_loader = torch.utils.data.DataLoader(
@@ -247,7 +238,7 @@ def main():
     CL2_K = 25
     FC1_F = 512
     FC2_F = 10
-    net_parameters = [IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, L_torch_sparse]
+    net_parameters = [IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, r_L_torch]
     model = Net(net_parameters).to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
