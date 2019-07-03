@@ -1,6 +1,18 @@
 import numpy as np
 import scipy.sparse
-import sklearn.metrics
+
+
+def Lambda_max(laplacian):
+    return scipy.sparse.linalg.eigsh(
+                laplacian, k=1, which='LM', return_eigenvectors=False)[0]
+
+
+def rescaled_L(laplacian):
+    M, M = laplacian.shape
+    I = scipy.sparse.identity(M, format='csr', dtype=laplacian.dtype)
+    laplacian /= Lambda_max(laplacian) / 2
+    laplacian -= I
+    return laplacian
 
 
 def laplacian(W, normalized=True):
@@ -70,14 +82,13 @@ def HEM(W, levels, rid=None):
     """
 
     N, N = W.shape
-    
+
     if rid is None:
         rid = np.random.permutation(range(N))
-        
+
     ss = np.array(W.sum(axis=0)).squeeze()
     rid = np.argsort(ss)    # 度排序
-        
-        
+
     parents = []
     degree = W.sum(axis=0) - W.diagonal()
     graphs = []
@@ -98,14 +109,14 @@ def HEM(W, levels, rid=None):
         cc = idx_row
         rr = idx_col
         vv = val
-        
-        # TO BE SPEEDUP
-        if not (list(cc)==list(np.sort(cc))):
-            tmp=cc
-            cc=rr
-            rr=tmp
 
-        cluster_id = HEM_one_level(cc,rr,vv,rid,weights) # cc is ordered
+        # TO BE SPEEDUP
+        if not (list(cc) == list(np.sort(cc))):
+            tmp = cc
+            cc = rr
+            rr = tmp
+
+        cluster_id = HEM_one_level(cc, rr, vv, rid, weights)    # cc is ordered
         parents.append(cluster_id)
 
         # COMPUTE THE EDGES WEIGHTS FOR THE NEW GRAPH
@@ -114,29 +125,29 @@ def HEM(W, levels, rid=None):
         nvv = vv
         Nnew = cluster_id.max() + 1
         # CSR is more appropriate: row,val pairs appear multiple times
-        W = scipy.sparse.csr_matrix((nvv,(nrr,ncc)), shape=(Nnew,Nnew))
+        W = scipy.sparse.csr_matrix((nvv, (nrr, ncc)), shape=(Nnew, Nnew))
         W.eliminate_zeros()
-        
+
         # Add new graph to the list of all coarsened graphs
         graphs.append(W)
         N, N = W.shape
 
         # COMPUTE THE DEGREE (OMIT OR NOT SELF LOOPS)
         degree = W.sum(axis=0)
-        #degree = W.sum(axis=0) - W.diagonal()
+        # degree = W.sum(axis=0) - W.diagonal()
 
         # CHOOSE THE ORDER IN WHICH VERTICES WILL BE VISTED AT THE NEXT PASS
-        #[~, rid]=sort(ss);     # arthur strategy
-        #[~, rid]=sort(supernode_size);    #  thomas strategy
-        #rid=randperm(N);                  #  metis/graclus strategy
+        # [~, rid]=sort(ss);     # arthur strategy
+        # [~, rid]=sort(supernode_size);    #  thomas strategy
+        # rid=randperm(N);                  #  metis/graclus strategy
         ss = np.array(W.sum(axis=0)).squeeze()
-        rid = np.argsort(ss)       
+        rid = np.argsort(ss)
 
     return graphs, parents  # 返回各图连接矩阵，以及图的聚类父节点关系
 
 
 # Coarsen a graph given by rr,cc,vv.  rr is assumed to be ordered
-def HEM_one_level(rr,cc,vv,rid,weights):
+def HEM_one_level(rr, cc, vv, rid, weights):
 
     nnz = rr.shape[0]
     N = rr[nnz-1] + 1
@@ -151,7 +162,7 @@ def HEM_one_level(rr,cc,vv,rid,weights):
     clustercount = 0
 
     for ii in range(nnz):
-        rowlength[count] = rowlength[count] + 1 # rowlength存储每一行元素个数
+        rowlength[count] = rowlength[count] + 1     # rowlength存储每一行元素个数
         if rr[ii] > oldval:
             oldval = rr[ii]
             rowstart[count+1] = ii  # rowstart存储每一行开始元素的index
@@ -169,20 +180,20 @@ def HEM_one_level(rr,cc,vv,rid,weights):
                 if marked[nid]:
                     tval = 0.0
                 else:
-                    
+
                     # First approach
-                    if 2==1:
+                    if 2 == 1:
                         tval = vv[rs+jj] * (1.0/weights[tid] + 1.0/weights[nid])
-                    
+
                     # Second approach
-                    if 1==1:
+                    if 1 == 1:
                         Wij = vv[rs+jj]
                         Wii = vv[rowstart[tid]]
                         Wjj = vv[rowstart[nid]]
                         di = weights[tid]
                         dj = weights[nid]
                         tval = (2.*Wij + Wii + Wjj) * 1./(di+dj+1e-9)
-                    
+
                 if tval > wmax:
                     wmax = tval
                     bestneighbor = nid
@@ -221,12 +232,12 @@ def compute_perm(parents):
             assert 0 <= len(indices_node) <= 2
 
             # Add a node to go with a singelton.
-            if len(indices_node) is 1:
+            if len(indices_node) == 1:
                 indices_node.append(pool_singeltons)
                 pool_singeltons += 1
 
             # Add two nodes as children of a singelton in the parent.
-            elif len(indices_node) is 0:
+            elif len(indices_node) == 0:
                 indices_node.append(pool_singeltons+0)
                 indices_node.append(pool_singeltons+1)
                 pool_singeltons += 2
@@ -235,7 +246,7 @@ def compute_perm(parents):
         indices.append(indices_layer)   # 分层存储二叉树
 
     # Sanity checks.
-    for i,indices_layer in enumerate(indices):
+    for i, indices_layer in enumerate(indices):
         M = M_last*2**i
         # Reduction by 2 at each layer (binary tree).
         assert len(indices[0] == M)                     # len(indices[0]) == M ?????????????
@@ -243,10 +254,6 @@ def compute_perm(parents):
         assert sorted(indices_layer) == list(range(M))
 
     return indices[::-1]
-
-assert (compute_perm([np.array([4,1,1,2,2,3,0,0,3]),np.array([2,1,0,1,0])])
-        == [[3,4,0,9,1,2,5,8,6,7,10,11],[2,4,1,3,0,5],[0,1,2]])
-
 
 
 def perm_adjacency(A, indices):
@@ -272,6 +279,6 @@ def perm_adjacency(A, indices):
     A.row = np.array(perm)[A.row]
     A.col = np.array(perm)[A.col]
 
-    assert np.abs(A - A.T).mean() < 1e-8 # 1e-9
+    assert np.abs(A - A.T).mean() < 1e-8    # 1e-9
     assert type(A) is scipy.sparse.coo.coo_matrix
     return A

@@ -1,9 +1,10 @@
+import os
+import glob
 import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.utils.data as data
-from torchvision import datasets, transforms
+from torchvision import transforms
 import numpy as np
 import pandas as pd
 
@@ -11,20 +12,17 @@ from graph import construction, coarsening
 
 
 class Graph_Conv(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, laplacian):
+    def __init__(self, in_channels, out_channels, kernel_size, rescaled_Laplacian):
         super(Graph_Conv, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
         self.kernel = nn.Linear(in_channels*kernel_size, out_channels)
-        self.lambda_max = self.Lambda_max(laplacian)
-        self.laplacian = nn.Parameter(self.scaled_Laplacian(laplacian).to_sparse(), requires_grad=False)
+        self.laplacian = nn.Parameter(rescaled_Laplacian.to_sparse(), requires_grad=False)
 
     def forward(self, input):
         """ input size: (Batch, Channel, Vertex)
         """
-        assert input.is_contiguous()
-
         B, C, V = input.shape
         input = input.permute([2, 1, 0]).contiguous()   # V, C, B
         x0 = input.view([V, C*B])                       # V, C*B
@@ -36,8 +34,7 @@ class Graph_Conv(nn.Module):
         for k in range(2, self.kernel_size):
             x_k = 2 * torch.mm(self.laplacian, x[k-1]) - x[k-2]     # V, C*B
             x = torch.cat((x, x_k.unsqueeze(0)), dim=0)             # k+1, V, C*B
-        
-        assert x.shape[0] == self.kernel_size
+
         x = x.view([self.kernel_size, V, C, B])         # K, V, C, B
         x = x.permute([3, 1, 2, 0]).contiguous()        # B, V, C, K
         x = x.view([B*V, C*self.kernel_size])           # B*V, C*K
@@ -47,14 +44,6 @@ class Graph_Conv(nn.Module):
         x = x.permute([0, 2, 1]).contiguous()           # B, C_out, V
 
         return x
-
-    def Lambda_max(self, laplacian):
-        return torch.eig(laplacian)[0][:, 0].max()
-
-    def scaled_Laplacian(self, laplacian):
-        M, _ = laplacian.shape
-        laplacian = 2*laplacian / self.lambda_max - torch.ones(M, dtype=laplacian.dtype).diag()
-        return laplacian
 
 
 class Graph_MaxPool(nn.Module):
@@ -133,22 +122,58 @@ class Net(nn.Module):
         return x
 
 
-class MRI_Dataset(data.Dataset):
-    def __init__(self, data_list):
+def split_dataset(sample_path, valid_pct, test_pct):
+    sub_dirs = [x[0] for x in os.walk(sample_path)]
+    sub_dirs.pop(0)
+
+    train_list = []
+    valid_list = []
+    test_list = []
+
+    for sub_dir in sub_dirs:
+        file_list = []
+        dir_name = os.path.basename(sub_dir)
+        file_glob = os.path.join(sample_path, dir_name, '*')
+        file_list.extend(glob.glob(file_glob))
+
+        for file_name in file_list:
+            chance = np.random.randint(100)
+            if chance < valid_pct:
+                valid_list.append([file_name, int(dir_name)])
+            elif chance < (valid_pct + test_pct):
+                test_list.append([file_name, int(dir_name)])
+            else:
+                train_list.append([file_name, int(dir_name)])
+
+    return (train_list, valid_list, test_list)
+
+
+class MRI_Dataset(torch.utils.data.Dataset):
+    def __init__(self, data_list, transform=None):
         self.data_list = data_list
+        self.transform = transform
 
     def __getitem__(self, idx):
         filepath, target = self.data_list[idx]
-        dataframe = pd.read_csv(filepath, sep=" ", header=None)
+        dataframe = pd.read_csv(filepath, sep="\s+", header=None)
         w = dataframe.to_numpy()
-        w = construction.to_graph_signal(w)
-        return w, target
+        gs = construction.to_graph_signal(w)
+
+        if self.transform is not None:
+            gs = self.transform(gs)
+
+        return gs, target
 
     def __len__(self):
         return len(self.data_list)
 
 
-class perm_data(object):
+class Array_To_Tensor(object):
+    def __call__(self, input):
+        return torch.from_numpy(input).float()
+
+
+class Perm_Data(object):
     def __init__(self, indices):
         self.indices = indices
 
@@ -159,7 +184,6 @@ class perm_data(object):
         pic_new = torch.cat((pic, pic_append), dim=1)
         pic_new_perm = pic_new[:, self.indices]
         return pic_new_perm
-
 
 
 def train(args, model, device, train_loader, optimizer, epoch):
@@ -221,35 +245,48 @@ def main():
     torch.manual_seed(args.seed)
 
     # distance graph construction
-    PATH = "D:/code/DTI_data/network_distance/AAL_116.node"
+    NODE_PATH = "D:/code/DTI_data/network_distance/AAL_116.node"
     theta = 30
     k = 50
-    dist_A = construction.dist_graph(PATH, theta, k)
+    dist_A = construction.dist_graph(NODE_PATH, theta, k)
 
     # graph coarsening
     L, perm = coarsening.coarsen(dist_A, 4)
-    L_torch = []
+    r_L_torch = []
     for l in L:
-        L_torch.append(torch.from_numpy(l.toarray()))
+        r_L_torch.append(torch.from_numpy(coarsening.rescaled_L(l).toarray()).float())
 
     # graph signal input construction
-
+    SAMPLE_PATH = "D:/code/DTI_data/network_FN/"
+    VALID_PCT = 0
+    TEST_PCT = 50
+    train_list, valid_list, test_list = split_dataset(SAMPLE_PATH, VALID_PCT, TEST_PCT)
 
     kwargs = {'num_workers': 3, 'pin_memory': True} if use_cuda else {}
     train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=True, download=True,
-                       transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,)),
-                           perm_data(perm)
-                       ])),
+        MRI_Dataset(train_list,
+                    transform=transforms.Compose([
+                        Array_To_Tensor(),
+                        Perm_Data(perm)
+                    ])),
         batch_size=args.batchsize, shuffle=True, **kwargs)
+
+    """
+    valid_loader = torch.utils.data.DataLoader(
+        MRI_Dataset(valid_list,
+                    transform=transforms.Compose([
+                        Array_To_Tensor(),
+                        Perm_Data(perm)
+                    ])),
+        batch_size=args.batchsize, shuffle=True, **kwargs)
+    """
+
     test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=False, transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,)),
-                           perm_data(perm)
-                       ])),
+        MRI_Dataset(test_list,
+                    transform=transforms.Compose([
+                        Array_To_Tensor(),
+                        Perm_Data(perm)
+                    ])),
         batch_size=args.batchsize, shuffle=True, **kwargs)
 
     # network parameters
@@ -261,7 +298,7 @@ def main():
     CL2_K = 25
     FC1_F = 512
     FC2_F = 10
-    net_parameters = [IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, L_torch]
+    net_parameters = [IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, r_L_torch]
     model = Net(net_parameters).to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
