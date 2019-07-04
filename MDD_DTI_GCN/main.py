@@ -264,7 +264,7 @@ def main():
     i = 0
     for idx in perm:
         if idx < node.shape[0]:
-            node_perm[i] = node[idx]
+            node_perm[i] = np.around(node[idx], decimals=2)
             i = i+1
 
     out = pd.DataFrame(node_perm)
