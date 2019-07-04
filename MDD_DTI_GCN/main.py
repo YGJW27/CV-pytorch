@@ -244,17 +244,43 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
     torch.manual_seed(args.seed)
 
+    OUT_PATH = "D:/code/out/"
+
     # distance graph construction
     NODE_PATH = "D:/code/DTI_data/network_distance/AAL_116.node"
     theta = 30
     k = 50
-    dist_A = construction.dist_graph(NODE_PATH, theta, k)
+    dist_A, node = construction.dist_graph(NODE_PATH, theta, k)
+
+    out = pd.DataFrame(dist_A.toarray())
+    out.to_csv(OUT_PATH + "dist_A.csv")
+    out = pd.DataFrame(node)
+    out.to_csv(OUT_PATH + "node.csv")
 
     # graph coarsening
     L, perm = coarsening.coarsen(dist_A, 4)
+
+    node_perm = np.empty_like(node)
+    i = 0
+    for idx in perm:
+        if idx < node.shape[0]:
+            node_perm[i] = node[idx]
+            i = i+1
+
+    out = pd.DataFrame(node_perm)
+    out.to_csv(OUT_PATH + "node_perm.csv")
+
+    out = pd.DataFrame(np.array(perm))
+    out.to_csv(OUT_PATH + "perm.csv")
+
     r_L_torch = []
-    for l in L:
+    for i, l in enumerate(L):
+        out = pd.DataFrame(coarsening.rescaled_L(l).toarray())
+        out.to_csv(OUT_PATH + "rescaled_L" + str(i) + ".csv")
         r_L_torch.append(torch.from_numpy(coarsening.rescaled_L(l).toarray()).float())
+
+
+   
 
     # graph signal input construction
     SAMPLE_PATH = "D:/code/DTI_data/network_FN/"

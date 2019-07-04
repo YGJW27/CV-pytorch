@@ -11,7 +11,7 @@ def dist_graph(PATH, theta, k):
     position = dataset.iloc[:, 0:3].to_numpy()
     dist = sklearn.metrics.pairwise_distances(position, metric="euclidean")
     w = dist_adjacency(dist, theta, k)
-    return w
+    return w, position
 
 
 def dist_adjacency(dist, theta, k):

@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.sparse
+import pandas as pd
 
 
 def Lambda_max(laplacian):
@@ -49,6 +50,9 @@ def coarsen(A, levels):
 
         if i < levels:
             A = perm_adjacency(A, perms[i])
+
+        out = pd.DataFrame(A.toarray())                 ###
+        out.to_csv("D:/code/out/A_" + str(i) + ".csv")  ###
 
         A = A.tocsr()
         A.eliminate_zeros()
