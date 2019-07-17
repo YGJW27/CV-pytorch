@@ -282,11 +282,3 @@ def perm_adjacency(A, indices):
     assert np.abs(A - A.T).mean() < 1e-8    # 1e-9
     assert type(A) is scipy.sparse.coo.coo_matrix
     return A
-
-
-def main():
-    pass
-
-
-if __name__ == "__main__":
-    main()
