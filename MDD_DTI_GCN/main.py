@@ -8,7 +8,7 @@ from torchvision import transforms
 import numpy as np
 import pandas as pd
 
-from graph import construction, coarsening
+import coarsening
 
 
 class Graph_Conv(nn.Module):
@@ -17,7 +17,7 @@ class Graph_Conv(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.kernel_size = kernel_size
-        self.kernel = nn.Linear(in_channels*kernel_size, out_channels)
+        self.kernel = nn.Linear(in_channels * kernel_size, out_channels)
         self.laplacian = nn.Parameter(rescaled_Laplacian.to_sparse(), requires_grad=False)
 
     def forward(self, input):
@@ -236,13 +236,18 @@ def main():
     parser.add_argument('-L', '--lr', type=float, default=0.01, metavar='LR')
     parser.add_argument('-M', '--momentum', type=float, default=0.9, metavar='M')
     parser.add_argument('-D', '--drop', type=float, default=0.5, metavar='D')
-    parser.add_argument('-S', '--seed', type=int, default=1, metavar='S')
+    parser.add_argument('-DS', '--dataseed', type=int, default=1, metavar='S')
+    parser.add_argument('-MS', '--modelseed', type=int, default=1, metavar='S')
     parser.add_argument('-C', '--cuda', action='store_true', default=False)
+    parser.add_argument('-GG', '--groupgraph', default='grouplevel.edge')
+    parser.add_argument('-St', '--stimulus', default='constant')
     args = parser.parse_args()
 
     use_cuda = args.cuda and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
-    torch.manual_seed(args.seed)
+    np.random.seed(args.dataseed)
+    torch.manual_seed(args.modelseed)
+    torch.cuda.manual_seed_all(args.modelseed)
 
     # distance graph construction
     NODE_PATH = "D:/code/DTI_data/network_distance/AAL_116.node"
