@@ -3,14 +3,15 @@ import pandas as pd
 import sklearn.metrics
 import scipy.sparse
 
-from . import coarsening
+import coarsening
 
 
-def dist_graph(PATH, theta, k):
+def dist_graph(PATH, delta):
     dataset = pd.read_csv(PATH, sep=" ", header=None)
     position = dataset.iloc[:, 0:3].to_numpy()
     dist = sklearn.metrics.pairwise_distances(position, metric="euclidean")
-    w = dist_adjacency(dist, theta, k)
+    w = np.zeros_like(dist)
+    w = np.exp()
     return w
 
 
@@ -33,3 +34,13 @@ def to_graph_signal(w):
     response2 = 2 * np.dot(L, response1) - stimulus
     response = np.concatenate((response1.T, response2.T), axis=0)
     return response
+
+
+def main():
+    NODE_PATH = "D:/code/DTI_data/network_distance/AAL_116.node"
+    delta = 30
+    dist_A = dist_graph(NODE_PATH, delta)
+
+
+if __name__ == "__main__":
+    main()
