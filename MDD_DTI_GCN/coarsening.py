@@ -3,13 +3,12 @@ import scipy.sparse
 
 
 def Lambda_max(laplacian):
-    return scipy.sparse.linalg.eigsh(
-                laplacian, k=1, which='LM', return_eigenvectors=False)[0]
+    return scipy.sparse.linalg.eigsh(laplacian, k=1, which='LM', return_eigenvectors=False)[0]
 
 
 def rescaled_L(laplacian):
     M, M = laplacian.shape
-    I = scipy.sparse.identity(M, format='csr', dtype=laplacian.dtype)
+    I = scipy.sparse.identity(M, dtype=laplacian.dtype, format='csr')
     laplacian /= Lambda_max(laplacian) / 2
     laplacian -= I
     return laplacian
