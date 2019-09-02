@@ -7,8 +7,13 @@ import torch.nn.functional as F
 from torchvision import transforms
 import numpy as np
 import pandas as pd
+import scipy.sparse
+from sklearn.model_selection import KFold
 
 import coarsening
+
+import multiprocessing
+multiprocessing.set_start_method('spawn', True)
 
 
 class Graph_Conv(nn.Module):
@@ -57,12 +62,13 @@ class Graph_MaxPool(nn.Module):
 
 
 class Net(nn.Module):
-    def __init__(self, net_parameters):
+    def __init__(self, net_parameters, drop):
         super(Net, self).__init__()
 
         # network parameters
         IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, L = net_parameters
         FC1_IN = CL2_F * IN_V // 16
+        self.drop = drop
 
         # Graph Convolutional Layer 1
         self.conv1 = Graph_Conv(IN_C, CL1_F, CL1_K, L[0])
@@ -99,7 +105,7 @@ class Net(nn.Module):
         # Max Pooling
         self.pool = Graph_MaxPool(4)
 
-    def forward(self, x, prob=0):
+    def forward(self, x):
         # Convolutional Layer 1
         x = self.conv1(x)
         x = F.relu(x)
@@ -114,7 +120,7 @@ class Net(nn.Module):
         x = x.view(x.shape[0], -1)
         x = self.fc1(x)
         x = F.relu(x)
-        x = F.dropout(x, p=prob, training=self.training)
+        x = F.dropout(x, p=self.drop, training=self.training)
 
         # Full Connected Layer 2
         x = self.fc2(x)
@@ -122,13 +128,11 @@ class Net(nn.Module):
         return x
 
 
-def split_dataset(sample_path, valid_pct, test_pct):
+def data_list(sample_path):
     sub_dirs = [x[0] for x in os.walk(sample_path)]
     sub_dirs.pop(0)
 
-    train_list = []
-    valid_list = []
-    test_list = []
+    data_list = []
 
     for sub_dir in sub_dirs:
         file_list = []
@@ -137,15 +141,9 @@ def split_dataset(sample_path, valid_pct, test_pct):
         file_list.extend(glob.glob(file_glob))
 
         for file_name in file_list:
-            chance = np.random.randint(100)
-            if chance < valid_pct:
-                valid_list.append([file_name, int(dir_name)])
-            elif chance < (valid_pct + test_pct):
-                test_list.append([file_name, int(dir_name)])
-            else:
-                train_list.append([file_name, int(dir_name)])
+            data_list.append([file_name, dir_name])
 
-    return (train_list, valid_list, test_list)
+    return np.array(data_list)
 
 
 class MRI_Dataset(torch.utils.data.Dataset):
@@ -154,15 +152,15 @@ class MRI_Dataset(torch.utils.data.Dataset):
         self.transform = transform
 
     def __getitem__(self, idx):
-        filepath, target = self.data_list[idx]
-        dataframe = pd.read_csv(filepath, sep="\s+", header=None)
-        w = dataframe.to_numpy()
-        gs = construction.to_graph_signal(w)
-
+        filepath, target = self.data_list[idx][0], int(self.data_list[idx][1])
+        dataframe = pd.read_csv(filepath, sep="\t", header=None)
+        pic = dataframe.to_numpy()          # (V, C)
+        pic = np.transpose(pic, (1, 0))     # (C, V)
+        # 标准化输入特征？
         if self.transform is not None:
-            gs = self.transform(gs)
+            pic = self.transform(pic)
 
-        return gs, target
+        return pic, target
 
     def __len__(self):
         return len(self.data_list)
@@ -186,15 +184,21 @@ class Perm_Data(object):
         return pic_new_perm
 
 
-def train(args, model, device, train_loader, optimizer, epoch):
+def train(model, device, train_loader, optimizer, weight_decay, epoch):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
 
         # Forward
-        output = model(data, prob=args.drop)
-        loss = F.cross_entropy(output, target)
+        output = model(data)
+        cls_loss = F.cross_entropy(output, target)
+        reg_loss = 0
+        for name, param in model.named_parameters():
+            if 'bias' not in name:
+                reg_loss += torch.norm(param)
+
+        loss = cls_loss + weight_decay * reg_loss
 
         # Backword
         loss.backward()
@@ -203,13 +207,13 @@ def train(args, model, device, train_loader, optimizer, epoch):
         optimizer.step()
 
         # Evaluate
-        if batch_idx % 100 == 0:
+        if batch_idx % 5 == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
 
 
-def test(args, model, device, test_loader):
+def test(model, device, test_loader):
     model.eval()
     test_loss = 0
     correct = 0
@@ -227,91 +231,101 @@ def test(args, model, device, test_loader):
     print('\nTest set: Average loss: {:.4f}, Accuracy: {:.4f}%\n'.format(
         test_loss, 100. * accuracy))
 
+    return accuracy
 
-def main():
-    # Training settings
-    parser = argparse.ArgumentParser(description="Pytorch MNIST")
-    parser.add_argument('-B', '--batchsize', type=int, default=1, metavar='B')
-    parser.add_argument('-E', '--epochs', type=int, default=30, metavar='N')
-    parser.add_argument('-L', '--lr', type=float, default=0.01, metavar='LR')
-    parser.add_argument('-M', '--momentum', type=float, default=0.9, metavar='M')
-    parser.add_argument('-D', '--drop', type=float, default=0.5, metavar='D')
-    parser.add_argument('-DS', '--dataseed', type=int, default=1, metavar='S')
-    parser.add_argument('-MS', '--modelseed', type=int, default=1, metavar='S')
-    parser.add_argument('-C', '--cuda', action='store_true', default=False)
-    parser.add_argument('-GG', '--groupgraph', default='grouplevel.edge')
-    parser.add_argument('-St', '--stimulus', default='constant')
-    args = parser.parse_args()
 
+def cross_validate(args, model, optimizer, dataset, cv, weight_decay, perm):
     use_cuda = args.cuda and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
-    np.random.seed(args.dataseed)
-    torch.manual_seed(args.modelseed)
-    torch.cuda.manual_seed_all(args.modelseed)
+    model.to(device)
 
-    # distance graph construction
-    NODE_PATH = "D:/code/DTI_data/network_distance/AAL_116.node"
-    theta = 30
-    k = 50
-    dist_A = construction.dist_graph(NODE_PATH, theta, k)
+    acc_sum = 0
+    kf = KFold(n_splits=cv, shuffle=True, random_state=args.dataseed)
+    for idx, (train_idx, test_idx) in enumerate(kf.split(dataset)):
+        print('--------Cross Validation: {}/{} --------\n'.format(idx + 1, cv))
+        kwargs = {'num_workers': 3, 'pin_memory': True} if use_cuda else {}
+        train_loader = torch.utils.data.DataLoader(
+            MRI_Dataset(dataset[train_idx],
+                        transform=transforms.Compose([
+                            Array_To_Tensor(),
+                            Perm_Data(perm)
+                        ])),
+            batch_size=args.batchsize, shuffle=False, **kwargs)
+
+        test_loader = torch.utils.data.DataLoader(
+            MRI_Dataset(dataset[test_idx],
+                        transform=transforms.Compose([
+                            Array_To_Tensor(),
+                            Perm_Data(perm)
+                        ])),
+            batch_size=args.batchsize, shuffle=False, **kwargs)
+
+        for epoch in range(1, args.epochs + 1):
+            train(model, device, train_loader, optimizer, weight_decay, epoch)
+            accuracy = test(model, device, test_loader)
+
+        acc_sum += accuracy
+    return acc_sum / cv
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Pytorch MNIST")
+    parser.add_argument('-B', '--batchsize', type=int, default=16, metavar='B')
+    parser.add_argument('-E', '--epochs', type=int, default=150, metavar='N')
+    parser.add_argument('-C', '--cuda', action='store_true', default=False)
+    parser.add_argument('-DS', '--dataseed', type=int, default=1, metavar='S')
+    parser.add_argument('-MS', '--modelseed', type=int, default=1, metavar='S')
+    parser.add_argument('-GG', '--groupgraph', default='D:/code/DTI_data/network_distance/grouplevel.edge')
+    parser.add_argument('-DP', '--datapath', default='D:/code/DTI_data/output/')
+    parser.add_argument('-IC', '--channel', type=int, default=3, metavar='N')
+    args = parser.parse_args()
+
+    # group-level graph
+    ggraph = pd.read_csv(args.groupgraph, sep='\t', header=None).to_numpy()
+    ggraph = scipy.sparse.csr_matrix(ggraph)
 
     # graph coarsening
-    L, perm = coarsening.coarsen(dist_A, 4)
-    r_L_torch = []
+    L, perm = coarsening.coarsen(ggraph, 4)
+    r_L_torch = []      # list of rescaled Ls for pytorch processing
     for l in L:
         r_L_torch.append(torch.from_numpy(coarsening.rescaled_L(l).toarray()).float())
 
-    # graph signal input construction
-    SAMPLE_PATH = "D:/code/DTI_data/network_FN/"
-    VALID_PCT = 0
-    TEST_PCT = 50
-    train_list, valid_list, test_list = split_dataset(SAMPLE_PATH, VALID_PCT, TEST_PCT)
-
-    kwargs = {'num_workers': 3, 'pin_memory': True} if use_cuda else {}
-    train_loader = torch.utils.data.DataLoader(
-        MRI_Dataset(train_list,
-                    transform=transforms.Compose([
-                        Array_To_Tensor(),
-                        Perm_Data(perm)
-                    ])),
-        batch_size=args.batchsize, shuffle=True, **kwargs)
-
-    """
-    valid_loader = torch.utils.data.DataLoader(
-        MRI_Dataset(valid_list,
-                    transform=transforms.Compose([
-                        Array_To_Tensor(),
-                        Perm_Data(perm)
-                    ])),
-        batch_size=args.batchsize, shuffle=True, **kwargs)
-    """
-
-    test_loader = torch.utils.data.DataLoader(
-        MRI_Dataset(test_list,
-                    transform=transforms.Compose([
-                        Array_To_Tensor(),
-                        Perm_Data(perm)
-                    ])),
-        batch_size=args.batchsize, shuffle=True, **kwargs)
-
-    # network parameters
-
-    IN_C, IN_V = train_loader.dataset[0][0].shape
-    CL1_F = 32
-    CL1_K = 25
-    CL2_F = 64
-    CL2_K = 25
-    FC1_F = 512
-    FC2_F = 10
+    # net parameters
+    IN_C = args.channel
+    IN_V = len(perm)
+    CL1_F = 16
+    CL1_K = 8
+    CL2_F = 32
+    CL2_K = 8
+    FC1_F = 100
+    FC2_F = 2
     net_parameters = [IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, r_L_torch]
-    model = Net(net_parameters).to(device)
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
-    for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, epoch)
-        test(args, model, device, test_loader)
+    dataset = data_list(args.datapath)
 
-    torch.save(model.state_dict(), "mnist_cnn.pt")
+    # 10-fold cross validation dataset split
+    lr_array = [1e-2, 4e-2, 7e-2, 1e-3, 4e-3, 7e-3, 1e-4]
+    weight_decay = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5]
+    momentum = [0.85, 0.9, 0.95]
+    drop_array = [0.2, 0.3, 0.4, 0.5]
+
+    df = pd.DataFrame(columns=['learn_rate', 'weight_decay', 'momentum', 'drop_rate', 'accuracy'])
+
+    for lr in lr_array:
+        for w_d in weight_decay:
+            for mmt in momentum:
+                for drop in drop_array:
+                    print("lr: ", lr, "w_d: ", w_d, "momentum: ", mmt, "drop: ", drop)
+                    torch.manual_seed(args.modelseed)
+                    torch.cuda.manual_seed_all(args.modelseed)
+                    model = Net(net_parameters, drop)
+                    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=mmt)
+                    acc = cross_validate(args, model, optimizer, dataset, cv=10, weight_decay=w_d, perm=perm)
+                    print("lr: ", lr, "w_d: ", w_d, "momentum: ", mmt, "drop: ", drop, "acc: ", acc)
+                    df = df.append({'learn_rate': lr, 'weight_decay': w_d,
+                                    'momentum': mmt, 'drop_rate': drop, 'accuracy': acc}, ignore_index=True)
+
+    df.to_csv('D:/code/DTI_data/result/cross_validation.csv', header=True, index=False)
 
 
 if __name__ == "__main__":
