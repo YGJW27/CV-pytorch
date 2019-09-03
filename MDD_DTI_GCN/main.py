@@ -317,7 +317,9 @@ def main():
     momentum = [0.85, 0.9, 0.95]
     drop_array = [0.2, 0.3, 0.4, 0.5]
 
+    result_path = 'D:/code/DTI_data/result/cross_validation.csv'
     df = pd.DataFrame(columns=['learn_rate', 'weight_decay', 'momentum', 'drop_rate', 'accuracy', 'loss', 'epoch'])
+    df.to_csv(result_path, header=True, index=False)
 
     for lr in lr_array:
         for w_d in weight_decay:
@@ -326,11 +328,11 @@ def main():
                     print("lr: ", lr, "w_d: ", w_d, "momentum: ", mmt, "drop: ", drop)
                     acc, loss, epoch = cross_validate(args, dataset, 10, lr, w_d, mmt, drop, perm, net_parameters)
                     print("lr: ", lr, "w_d:  ", w_d, "momentum: ", mmt, "drop: ", drop, "acc: ", acc)
+                    df = pd.read_csv(result_path, header=0)
                     df = df.append({'learn_rate': lr, 'weight_decay': w_d,
                                     'momentum': mmt, 'drop_rate': drop, 'accuracy': acc,
                                     'loss': loss, 'epoch': epoch}, ignore_index=True)
-
-    df.to_csv('D:/code/DTI_data/result/cross_validation.csv', header=True, index=False)
+                    df.to_csv(result_path, header=True, index=False)
 
 
 if __name__ == "__main__":
