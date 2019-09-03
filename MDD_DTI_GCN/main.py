@@ -195,7 +195,7 @@ def train(model, device, train_loader, optimizer, weight_decay, epoch):
         cls_loss = F.cross_entropy(output, target)
         reg_loss = 0
         for name, param in model.named_parameters():
-            if 'bias' not in name:
+            if 'weight' in name:
                 reg_loss += torch.norm(param)
 
         loss = cls_loss + weight_decay * reg_loss
@@ -231,17 +231,21 @@ def test(model, device, test_loader):
     print('\nTest set: Average loss: {:.4f}, Accuracy: {:.4f}%\n'.format(
         test_loss, 100. * accuracy))
 
-    return accuracy
+    return accuracy, test_loss
 
 
-def cross_validate(args, model, optimizer, dataset, cv, weight_decay, perm):
+def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
     use_cuda = args.cuda and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
-    model.to(device)
 
     acc_sum = 0
     kf = KFold(n_splits=cv, shuffle=True, random_state=args.dataseed)
     for idx, (train_idx, test_idx) in enumerate(kf.split(dataset)):
+        torch.manual_seed(args.modelseed)
+        torch.cuda.manual_seed_all(args.modelseed)
+        model = Net(net_parameters, drop)
+        model.to(device)
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=mmt)
         print('--------Cross Validation: {}/{} --------\n'.format(idx + 1, cv))
         kwargs = {'num_workers': 3, 'pin_memory': True} if use_cuda else {}
         train_loader = torch.utils.data.DataLoader(
@@ -259,19 +263,23 @@ def cross_validate(args, model, optimizer, dataset, cv, weight_decay, perm):
                             Perm_Data(perm)
                         ])),
             batch_size=args.batchsize, shuffle=False, **kwargs)
-
+        loss_list = []
         for epoch in range(1, args.epochs + 1):
-            train(model, device, train_loader, optimizer, weight_decay, epoch)
-            accuracy = test(model, device, test_loader)
+            train(model, device, train_loader, optimizer, w_d, epoch)
+            accuracy, loss = test(model, device, test_loader)
+            loss_list.append(loss)
+            if epoch > 200:
+                if (loss_list[-101] - loss_list[-1]) < 1e-5:
+                    break
 
         acc_sum += accuracy
-    return acc_sum / cv
+    return acc_sum / cv, loss, epoch
 
 
 def main():
     parser = argparse.ArgumentParser(description="Pytorch MNIST")
     parser.add_argument('-B', '--batchsize', type=int, default=16, metavar='B')
-    parser.add_argument('-E', '--epochs', type=int, default=150, metavar='N')
+    parser.add_argument('-E', '--epochs', type=int, default=5000, metavar='N')
     parser.add_argument('-C', '--cuda', action='store_true', default=False)
     parser.add_argument('-DS', '--dataseed', type=int, default=1, metavar='S')
     parser.add_argument('-MS', '--modelseed', type=int, default=1, metavar='S')
@@ -309,21 +317,18 @@ def main():
     momentum = [0.85, 0.9, 0.95]
     drop_array = [0.2, 0.3, 0.4, 0.5]
 
-    df = pd.DataFrame(columns=['learn_rate', 'weight_decay', 'momentum', 'drop_rate', 'accuracy'])
+    df = pd.DataFrame(columns=['learn_rate', 'weight_decay', 'momentum', 'drop_rate', 'accuracy', 'loss', 'epoch'])
 
     for lr in lr_array:
         for w_d in weight_decay:
             for mmt in momentum:
                 for drop in drop_array:
                     print("lr: ", lr, "w_d: ", w_d, "momentum: ", mmt, "drop: ", drop)
-                    torch.manual_seed(args.modelseed)
-                    torch.cuda.manual_seed_all(args.modelseed)
-                    model = Net(net_parameters, drop)
-                    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=mmt)
-                    acc = cross_validate(args, model, optimizer, dataset, cv=10, weight_decay=w_d, perm=perm)
-                    print("lr: ", lr, "w_d: ", w_d, "momentum: ", mmt, "drop: ", drop, "acc: ", acc)
+                    acc, loss, epoch = cross_validate(args, dataset, 10, lr, w_d, mmt, drop, perm, net_parameters)
+                    print("lr: ", lr, "w_d:  ", w_d, "momentum: ", mmt, "drop: ", drop, "acc: ", acc)
                     df = df.append({'learn_rate': lr, 'weight_decay': w_d,
-                                    'momentum': mmt, 'drop_rate': drop, 'accuracy': acc}, ignore_index=True)
+                                    'momentum': mmt, 'drop_rate': drop, 'accuracy': acc,
+                                    'loss': loss, 'epoch': epoch}, ignore_index=True)
 
     df.to_csv('D:/code/DTI_data/result/cross_validation.csv', header=True, index=False)
 
