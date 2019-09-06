@@ -254,7 +254,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
                             Array_To_Tensor(),
                             Perm_Data(perm)
                         ])),
-            batch_size=args.batchsize, shuffle=False, **kwargs)
+            batch_size=args.batchsize, shuffle=True, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
             MRI_Dataset(dataset[test_idx],
@@ -262,7 +262,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
                             Array_To_Tensor(),
                             Perm_Data(perm)
                         ])),
-            batch_size=args.batchsize, shuffle=False, **kwargs)
+            batch_size=args.batchsize, shuffle=True, **kwargs)
         loss_list = []
         for epoch in range(1, args.epochs + 1):
             train(model, device, train_loader, optimizer, w_d, epoch)
