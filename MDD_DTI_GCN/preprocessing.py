@@ -48,9 +48,7 @@ def sample_processing(sample_path, output_path):
         file_glob = os.path.join(sample_path, dir_name, '*')
         file_list.extend(glob.glob(file_glob))
         output_dir = os.path.join(output_path, dir_name)
-        if os.path.exists(output_dir):
-            continue
-        else:
+        if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
         for f in file_list:
