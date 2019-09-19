@@ -264,6 +264,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
                         ])),
             batch_size=args.batchsize, shuffle=True, **kwargs)
         loss_list = []
+        filename = 'D:/code/DTI_data/output/' + "lr" + str(lr) + "_wd" + str(w_d) + "_mmt" + str(mmt) + "_drop" + str(drop) + "_cv" + str(idx) + ".csv"
         for epoch in range(1, args.epochs + 1):
             train(model, device, train_loader, optimizer, w_d, epoch)
             accuracy, loss = test(model, device, test_loader)
@@ -271,14 +272,15 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
             if epoch > 200:
                 if (loss_list[-101] - loss_list[-1]) < 1e-5:
                     break
-
+        loss_df = pd.DataFrame(loss_list)
+        loss_df.to_csv(filename, header=False, index=False)
         acc_sum += accuracy
     return acc_sum / cv, loss, epoch
 
 
 def main():
     parser = argparse.ArgumentParser(description="Pytorch MNIST")
-    parser.add_argument('-B', '--batchsize', type=int, default=16, metavar='B')
+    parser.add_argument('-B', '--batchsize', type=int, default=20, metavar='B')
     parser.add_argument('-E', '--epochs', type=int, default=5000, metavar='N')
     parser.add_argument('-C', '--cuda', action='store_true', default=False)
     parser.add_argument('-DS', '--dataseed', type=int, default=1, metavar='S')
@@ -312,10 +314,14 @@ def main():
     dataset = data_list(args.datapath)
 
     # 10-fold cross validation dataset split
-    lr_array = [1e-2, 4e-2, 7e-2, 1e-3, 4e-3, 7e-3, 1e-4]
-    weight_decay = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5]
-    momentum = [0.85, 0.9, 0.95]
-    drop_array = [0.2, 0.3, 0.4, 0.5]
+    # lr_array = [1e-2, 4e-2, 7e-2, 1e-3, 4e-3, 7e-3, 1e-4]
+    # weight_decay = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5]
+    # momentum = [0.85, 0.9, 0.95]
+    # drop_array = [0.2, 0.3, 0.4, 0.5]
+    lr_array = [1e-2]
+    weight_decay = [1e-2]
+    momentum = [0.85]
+    drop_array = [0.3]
 
     result_path = 'D:/code/DTI_data/result/cross_validation.csv'
     df = pd.DataFrame(columns=['learn_rate', 'weight_decay', 'momentum', 'drop_rate', 'accuracy', 'loss', 'epoch'])
