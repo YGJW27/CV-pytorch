@@ -264,7 +264,10 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
                         ])),
             batch_size=args.batchsize, shuffle=True, **kwargs)
         loss_list = []
-        filename = 'D:/code/DTI_data/output/' + "lr" + str(lr) + "_wd" + str(w_d) + "_mmt" + str(mmt) + "_drop" + str(drop) + "_cv" + str(idx) + ".csv"
+        filename = 'D:/code/DTI_data/result/' + "lr" + str(lr) \
+            + "_wd" + str(w_d) + "_mmt" + str(mmt) + "_drop" \
+            + str(drop) + "_cv" + str(idx) + ".csv"
+
         for epoch in range(1, args.epochs + 1):
             train(model, device, train_loader, optimizer, w_d, epoch)
             accuracy, loss = test(model, device, test_loader)
@@ -324,7 +327,8 @@ def main():
     drop_array = [0.3]
 
     result_path = 'D:/code/DTI_data/result/cross_validation.csv'
-    df = pd.DataFrame(columns=['learn_rate', 'weight_decay', 'momentum', 'drop_rate', 'accuracy', 'loss', 'epoch'])
+    df = pd.DataFrame(columns=['learn_rate', 'weight_decay', 'momentum',
+                      'drop_rate', 'accuracy', 'loss', 'epoch'])
     df.to_csv(result_path, header=True, index=False)
 
     for lr in lr_array:
