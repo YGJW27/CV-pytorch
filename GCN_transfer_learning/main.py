@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from torchvision import datasets, transforms
+import pandas as pd
 
 
 class Net(nn.Module):
@@ -61,11 +62,23 @@ class Net(nn.Module):
         # Max Pooling
         self.pool = nn.MaxPool2d(2, 2)
 
+        # Sparse Layer
+        sparse = torch.zeros((IN_W//2, IN_W//2), dtype=torch.float32)
+        self.sparse = nn.Parameter(sparse, requires_grad=True)
+        self.sparse_dim = CL1_F
+
     def forward(self, x, prob=0):
         # Convolutional Layer 1
         x = self.conv1(x)
         x = F.relu(x)
         x = self.pool(x)
+
+        # Sparse Layer
+        sparse_3 = self.sparse.unsqueeze(0)
+        m, n = self.sparse.shape
+        sparse_expand = sparse_3.expand((self.sparse_dim, m, n))
+        sparse_sigmoid = torch.sigmoid(sparse_expand)
+        x = x * sparse_sigmoid
 
         # Convolutional Layer 2
         x = self.conv2(x)
@@ -96,7 +109,9 @@ def train(args, model, device, train_loader, optimizer, epoch):
 
         # Forward
         output = model(data, prob=args.drop)
-        loss = F.cross_entropy(output, target)
+        sparse_rate = 0.01
+        loss_L1 = torch.norm(torch.sigmoid(model.sparse), p=1)
+        loss = F.cross_entropy(output, target) + sparse_rate * loss_L1
 
         # Backword
         loss.backward()
@@ -109,6 +124,10 @@ def train(args, model, device, train_loader, optimizer, epoch):
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
+
+    w = torch.sigmoid(model.sparse.cpu()).data.numpy()
+    df = pd.DataFrame(w)
+    df.to_csv("D:/code/DTI_data/output/epoch_{}.csv".format(epoch), header=False, index=False)
 
 
 def test(args, model, device, test_loader):
@@ -181,7 +200,7 @@ def main():
         train(args, model, device, train_loader, optimizer, epoch)
         test(args, model, device, test_loader)
 
-    torch.save(model.state_dict(), "mnist_cnn.pt")
+    # torch.save(model.state_dict(), "mnist_cnn.pt")
 
 
 if __name__ == "__main__":
