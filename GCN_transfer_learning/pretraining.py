@@ -163,7 +163,7 @@ class Net_GCN_mnist(nn.Module):
         self.node_index = node_index
         self.perm = perm
 
-        # Convolutional Layer 1
+        # Convolutional Layer
         PAD1 = (CL1_K - 1) // 2
         self.conv1 = nn.Conv2d(IN_C, CL1_F, CL1_K, padding=PAD1)
         Fin = IN_C * CL1_K**2
@@ -172,7 +172,10 @@ class Net_GCN_mnist(nn.Module):
         self.conv1.weight.data.uniform_(-scale, scale)
         self.conv1.bias.data.fill_(0.0)
 
-        # Graph Convolutional Layer 2
+        # Batch Normalization Layer
+        self.norm = nn.BatchNorm1d(CL1_F, affine=False)
+
+        # Graph Convolutional Layer 1
         self.conv2 = Graph_Conv(CL1_F, CL2_F, CL2_K, L[0])
         Fin = CL1_F * CL2_K
         Fout = CL2_F
@@ -180,7 +183,7 @@ class Net_GCN_mnist(nn.Module):
         self.conv2.kernel.weight.data.uniform_(-scale, scale)
         self.conv2.kernel.bias.data.fill_(0.0)
 
-        # Graph Convolutional Layer 3
+        # Graph Convolutional Layer 2
         self.conv3 = Graph_Conv(CL2_F, CL3_F, CL3_K, L[2])
         Fin = CL2_F * CL3_K
         Fout = CL3_F
@@ -231,6 +234,9 @@ class Net_GCN_mnist(nn.Module):
         x_append = torch.zeros([B, C, V_perm - V], dtype=x.dtype, device=x.device)
         x = torch.cat((x, x_append), dim=2)
         x = x[:, :, self.perm]
+
+        # Batch Normalization Layer
+        x = self.norm(x)
 
         # Graph Convolutional Layer 1
         x = self.conv2(x)
@@ -341,12 +347,12 @@ def main():
     parser.add_argument('-B', '--batchsize', type=int, default=1, metavar='B')
     parser.add_argument('-E', '--epochs', type=int, default=30, metavar='N')
     parser.add_argument('-L', '--lr', type=float, default=0.01, metavar='LR')
-    parser.add_argument('-M', '--momentum', type=float, default=0.9, metavar='M')
+    parser.add_argument('-MT', '--momentum', type=float, default=0.9, metavar='MT')
     parser.add_argument('-D', '--drop', type=float, default=0.3, metavar='D')
     parser.add_argument('-S', '--seed', type=int, default=1, metavar='S')
     parser.add_argument('-C', '--cuda', action='store_true', default=False)
     parser.add_argument('-GG', '--groupgraph', default='D:/code/DTI_data/network_distance/grouplevel.edge')
-    parser.add_argument('-m', '--model', default='model.pth', metavar='PATH', help='path to model')
+    parser.add_argument('-M', '--model', default='model.pth', metavar='PATH', help='path to model')
     args = parser.parse_args()
 
     use_cuda = args.cuda and torch.cuda.is_available()
@@ -390,7 +396,7 @@ def main():
 
     """
     # ----------------- GCN part ----------------- #
-    PATH = "D:/code/DTI_data/output/191105_sr_0.005_var/epoch_100.csv"
+    PATH = "D:/code/DTI_data/pretrain/191105_sr_0.005_var/epoch_100.csv"
     node_index = node_select(PATH)
 
     # group-level graph
@@ -414,7 +420,7 @@ def main():
     CL2_K = 8
     CL3_F = 32
     CL3_K = 8
-    FC1_F = 100
+    FC1_F = 50
     FC2_F = 10
     net_GCN_parameters = [IN_W, IN_H, IN_C, CL1_F, CL1_K, IN_V, CL2_F, CL2_K, CL3_F, CL3_K, FC1_F, FC2_F, r_L_torch, node_index, perm]
     model = Net_GCN_mnist(net_GCN_parameters).to(device)
