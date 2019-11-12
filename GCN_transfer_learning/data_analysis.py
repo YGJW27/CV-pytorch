@@ -1,19 +1,17 @@
 import os
 import glob
 import argparse
+import scipy.stats
+import pandas as pd
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import transforms
-import numpy as np
-import pandas as pd
 import scipy.sparse
 from sklearn.model_selection import KFold
 
 import coarsening
-
-import multiprocessing
-multiprocessing.set_start_method('spawn', True)
 
 
 class Graph_Conv(nn.Module):
@@ -128,6 +126,7 @@ class Net(nn.Module):
         x = F.relu(x)
         x = self.pool(x)
 
+        """
         # Full Connected Layer 1
         x = x.view(x.shape[0], -1)
         x = self.fc1(x)
@@ -136,6 +135,7 @@ class Net(nn.Module):
 
         # Full Connected Layer 2
         x = self.fc2(x)
+        """
 
         return x
 
@@ -196,61 +196,55 @@ class Perm_Data(object):
         return pic_new_perm
 
 
-def train(model, device, train_loader, optimizer, weight_decay, epoch):
-    model.train()
-    for batch_idx, (data, target) in enumerate(train_loader):
-        data, target = data.to(device), target.to(device)
-        optimizer.zero_grad()
-
-        # Forward
-        output = model(data)
-        cls_loss = F.cross_entropy(output, target)
-        reg_loss = 0
-        for name, param in model.named_parameters():
-            if ('weight' in name) and ('fc' in name):
-                reg_loss += torch.norm(param)
-
-        loss = cls_loss + weight_decay * reg_loss
-
-        # Backword
-        loss.backward()
-
-        # Update
-        optimizer.step()
-
-        # Evaluate
-        if batch_idx % 1 == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.item()))
-
-
-def test(model, device, test_loader):
+def train(model, train_loader, idx):
     model.eval()
-    test_loss = 0
-    correct = 0
-    with torch.no_grad():
-        for data, target in test_loader:
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            test_loss += F.cross_entropy(output, target, reduction='sum').item()
-            pred = output.argmax(dim=1, keepdim=True)
-            correct += pred.eq(target.view_as(pred)).sum().item()
+    for batch_idx, (data, target) in enumerate(train_loader):
+        r_matrix = np.zeros((data.shape[1], data.shape[2]))
+        p_matrix = np.zeros((data.shape[1], data.shape[2]))
 
-    test_loss /= len(test_loader.dataset)
-    accuracy = correct / len(test_loader.dataset)
+        for i in range(data.shape[1]):
+            for j in range(data.shape[2]):
+                x = np.zeros(len(train_loader.dataset))
+                y = np.zeros(len(train_loader.dataset))
+                for k in range(len(train_loader.dataset)):
+                    x[k] = data[k, i, j]
+                    y[k] = target[k]
+                if np.var(x) == 0:
+                    r_matrix[i, j], p_matrix[i, j] = 0, 1
+                else:
+                    r_matrix[i, j], p_matrix[i, j] = scipy.stats.pearsonr(x, y)
 
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {:.4f}%\n'.format(
-        test_loss, 100. * accuracy))
+        r_df = pd.DataFrame(r_matrix)
+        p_df = pd.DataFrame(p_matrix)
+        df = pd.concat([r_df, p_df])
+        filename = 'D:/code/DTI_data/pretrain/origin' + "_cv" + str(idx) + ".csv"
+        df.to_csv(filename)
 
-    return accuracy, test_loss
+        output = model(data)
+        r_matrix = np.zeros((output.shape[1], output.shape[2]))
+        p_matrix = np.zeros((output.shape[1], output.shape[2]))
+
+        for i in range(output.shape[1]):
+            for j in range(output.shape[2]):
+                x = np.zeros(len(train_loader.dataset))
+                y = np.zeros(len(train_loader.dataset))
+                for k in range(len(train_loader.dataset)):
+                    x[k] = output[k, i, j]
+                    y[k] = target[k]
+                if np.var(x) == 0:
+                    r_matrix[i, j], p_matrix[i, j] = 0, 1
+                else:
+                    r_matrix[i, j], p_matrix[i, j] = scipy.stats.pearsonr(x, y)
+
+        r_df = pd.DataFrame(r_matrix)
+        p_df = pd.DataFrame(p_matrix)
+        df = pd.concat([r_df, p_df])
+        filename = 'D:/code/DTI_data/pretrain/processed' + "_cv" + str(idx) + ".csv"
+        df.to_csv(filename)
 
 
 def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
-    use_cuda = args.cuda and torch.cuda.is_available()
-    device = torch.device("cuda" if use_cuda else "cpu")
 
-    acc_sum = 0
     kf = KFold(n_splits=cv, shuffle=True, random_state=args.dataseed)
     for idx, (train_idx, test_idx) in enumerate(kf.split(dataset)):
         torch.manual_seed(args.modelseed)
@@ -263,41 +257,17 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
             print('————Loading Failed————')
 
         model = Net(net_parameters, drop, pretrain_params)
-        model.to(device)
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=mmt)
         print('--------Cross Validation: {}/{} --------\n'.format(idx + 1, cv))
-        kwargs = {'num_workers': 3, 'pin_memory': True} if use_cuda else {}
+        kwargs = {}
         train_loader = torch.utils.data.DataLoader(
             MRI_Dataset(dataset[train_idx],
                         transform=transforms.Compose([
                             Array_To_Tensor(),
                             Perm_Data(perm)
                         ])),
-            batch_size=args.batchsize, shuffle=True, **kwargs)
+            batch_size=train_idx.size, shuffle=True, **kwargs)
 
-        test_loader = torch.utils.data.DataLoader(
-            MRI_Dataset(dataset[test_idx],
-                        transform=transforms.Compose([
-                            Array_To_Tensor(),
-                            Perm_Data(perm)
-                        ])),
-            batch_size=args.batchsize, shuffle=True, **kwargs)
-        loss_list = []
-        filename = 'D:/code/DTI_data/result/' + "lr" + str(lr) \
-            + "_wd" + str(w_d) + "_mmt" + str(mmt) + "_drop" \
-            + str(drop) + "_cv" + str(idx) + ".csv"
-
-        for epoch in range(1, args.epochs + 1):
-            train(model, device, train_loader, optimizer, w_d, epoch)
-            accuracy, loss = test(model, device, test_loader)
-            loss_list.append(loss)
-            if epoch > 200:
-                if (loss_list[-101] - loss_list[-1]) < 1e-5:
-                    break
-        loss_df = pd.DataFrame(loss_list)
-        loss_df.to_csv(filename, header=False, index=False)
-        acc_sum += accuracy
-    return acc_sum / cv, loss, epoch
+        train(model, train_loader, idx)
 
 
 def main():
@@ -356,13 +326,7 @@ def main():
             for mmt in momentum:
                 for drop in drop_array:
                     print("lr: ", lr, "w_d: ", w_d, "momentum: ", mmt, "drop: ", drop)
-                    acc, loss, epoch = cross_validate(args, dataset, 20, lr, w_d, mmt, drop, perm, net_parameters)
-                    print("lr: ", lr, "w_d:  ", w_d, "momentum: ", mmt, "drop: ", drop, "acc: ", acc)
-                    df = pd.read_csv(result_path, header=0)
-                    df = df.append({'learn_rate': lr, 'weight_decay': w_d,
-                                    'momentum': mmt, 'drop_rate': drop, 'accuracy': acc,
-                                    'loss': loss, 'epoch': epoch}, ignore_index=True)
-                    df.to_csv(result_path, header=True, index=False)
+                    cross_validate(args, dataset, 10, lr, w_d, mmt, drop, perm, net_parameters)
 
 
 if __name__ == "__main__":
