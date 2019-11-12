@@ -168,7 +168,7 @@ class MRI_Dataset(torch.utils.data.Dataset):
         dataframe = pd.read_csv(filepath, sep="\t", header=None)
         pic = dataframe.to_numpy()          # (V, C)
         pic = np.transpose(pic, (1, 0))     # (C, V)
-        # 标准化输入特征？
+
         if self.transform is not None:
             pic = self.transform(pic)
 
