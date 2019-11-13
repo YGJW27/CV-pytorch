@@ -196,8 +196,10 @@ class Perm_Data(object):
         return pic_new_perm
 
 
-def train(model, train_loader, idx):
-    model.eval()
+def train(args, model, train_loader, idx):
+    torch.manual_seed(args.modelseed)
+    torch.cuda.manual_seed_all(args.modelseed)
+    model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         r_matrix = np.zeros((data.shape[1], data.shape[2]))
         p_matrix = np.zeros((data.shape[1], data.shape[2]))
@@ -239,7 +241,7 @@ def train(model, train_loader, idx):
         r_df = pd.DataFrame(r_matrix)
         p_df = pd.DataFrame(p_matrix)
         df = pd.concat([r_df, p_df])
-        filename = 'D:/code/DTI_data/pretrain/processed' + "_cv" + str(idx) + ".csv"
+        filename = 'D:/code/DTI_data/pretrain/processed0' + "_cv" + str(idx) + ".csv"
         df.to_csv(filename)
 
 
@@ -247,8 +249,6 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
 
     kf = KFold(n_splits=cv, shuffle=True, random_state=args.dataseed)
     for idx, (train_idx, test_idx) in enumerate(kf.split(dataset)):
-        torch.manual_seed(args.modelseed)
-        torch.cuda.manual_seed_all(args.modelseed)
 
         if os.access(args.model, os.F_OK):
             pretrain_params = torch.load(args.model, map_location='cpu')
@@ -267,7 +267,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
                         ])),
             batch_size=train_idx.size, shuffle=True, **kwargs)
 
-        train(model, train_loader, idx)
+        train(args, model, train_loader, idx)
 
 
 def main():
@@ -275,8 +275,8 @@ def main():
     parser.add_argument('-B', '--batchsize', type=int, default=20, metavar='B')
     parser.add_argument('-E', '--epochs', type=int, default=5000, metavar='N')
     parser.add_argument('-C', '--cuda', action='store_true', default=False)
-    parser.add_argument('-DS', '--dataseed', type=int, default=2, metavar='S')
-    parser.add_argument('-MS', '--modelseed', type=int, default=2, metavar='S')
+    parser.add_argument('-DS', '--dataseed', type=int, default=1, metavar='S')
+    parser.add_argument('-MS', '--modelseed', type=int, default=1, metavar='S')
     parser.add_argument('-GG', '--groupgraph', default='D:/code/DTI_data/network_distance/grouplevel.edge')
     parser.add_argument('-DP', '--datapath', default='D:/code/DTI_data/output/')
     parser.add_argument('-IC', '--channel', type=int, default=3, metavar='N')

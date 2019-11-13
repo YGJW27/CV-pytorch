@@ -114,6 +114,10 @@ class Net(nn.Module):
         # Max Pooling
         self.pool = Graph_MaxPool(4)
 
+        # Sparse Layer
+        sparse = torch.zeros((CL2_F, IN_V // 16), dtype=torch.float32)
+        self.sparse = nn.Parameter(sparse, requires_grad=True)
+
     def forward(self, x):
         # Batch Normalization Layer
         x = self.norm(x)
@@ -127,6 +131,10 @@ class Net(nn.Module):
         x = self.conv2(x)
         x = F.relu(x)
         x = self.pool(x)
+
+        # Sparse Layer
+        sparse_sigmoid = torch.sigmoid(self.sparse)
+        x = x * sparse_sigmoid
 
         # Full Connected Layer 1
         x = x.view(x.shape[0], -1)
@@ -205,12 +213,16 @@ def train(model, device, train_loader, optimizer, weight_decay, epoch):
         # Forward
         output = model(data)
         cls_loss = F.cross_entropy(output, target)
-        reg_loss = 0
+        sparse_rate = 0.01
+        var_rate = 0.05
+        L1_loss = torch.norm(torch.sigmoid(model.sparse), p=1)
+        var_loss = torch.var(torch.sigmoid(model.sparse).view(-1,))
+        L2_loss = 0
         for name, param in model.named_parameters():
             if ('weight' in name) and ('fc' in name):
-                reg_loss += torch.norm(param)
+                L2_loss += torch.norm(param)
 
-        loss = cls_loss + weight_decay * reg_loss
+        loss = cls_loss + weight_decay * L2_loss + sparse_rate * L1_loss + var_rate / (0.01 + var_loss)
 
         # Backword
         loss.backward()
@@ -264,7 +276,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
 
         model = Net(net_parameters, drop, pretrain_params)
         model.to(device)
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=mmt)
+
         print('--------Cross Validation: {}/{} --------\n'.format(idx + 1, cv))
         kwargs = {'num_workers': 3, 'pin_memory': True} if use_cuda else {}
         train_loader = torch.utils.data.DataLoader(
@@ -283,17 +295,68 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
                         ])),
             batch_size=args.batchsize, shuffle=True, **kwargs)
         loss_list = []
-        filename = 'D:/code/DTI_data/result/' + "lr" + str(lr) \
+        filename = "D:/code/DTI_data/result/" + "lr" + str(lr) \
             + "_wd" + str(w_d) + "_mmt" + str(mmt) + "_drop" \
             + str(drop) + "_cv" + str(idx) + ".csv"
 
         for epoch in range(1, args.epochs + 1):
+            lr_decay = lr * np.exp(-5 * epoch / args.epochs)
+            print("lr: ", lr_decay)
+            optimizer = torch.optim.SGD(model.parameters(), lr=lr_decay, momentum=mmt)
             train(model, device, train_loader, optimizer, w_d, epoch)
             accuracy, loss = test(model, device, test_loader)
             loss_list.append(loss)
-            if epoch > 200:
-                if (loss_list[-101] - loss_list[-1]) < 1e-5:
-                    break
+
+        weightfile = "D:/code/DTI_data/result/" + "weight" + "_cv" + str(idx) + ".csv"
+        w_df = pd.DataFrame(model.fc1.weight.data.cpu().numpy())
+        w_df.to_csv(weightfile)
+
+        sparsefile = "D:/code/DTI_data/result/" + "sparse" + "_cv" + str(idx) + ".csv"
+        sp = torch.sigmoid(model.sparse.cpu()).data.numpy()
+        s_df = pd.DataFrame(sp)
+        s_df.to_csv(sparsefile)
+
+        train_loader = torch.utils.data.DataLoader(
+            MRI_Dataset(dataset[train_idx],
+                        transform=transforms.Compose([
+                            Array_To_Tensor(),
+                            Perm_Data(perm)
+                        ])),
+            batch_size=train_idx.size, shuffle=True, **kwargs)
+
+        torch.manual_seed(args.modelseed)
+        torch.cuda.manual_seed_all(args.modelseed)
+        model.eval()
+        for batch_idx, (data, target) in enumerate(train_loader):
+            output = nn.BatchNorm1d(3, affine=False)(data)
+            output = model.conv1(output)
+            output = F.relu(output)
+            output = model.pool(output)
+            output = model.conv2(output)
+            output = F.relu(output)
+            output = model.pool(output)
+
+            r_matrix = np.zeros((output.shape[1], output.shape[2]))
+            p_matrix = np.zeros((output.shape[1], output.shape[2]))
+
+            for i in range(output.shape[1]):
+                for j in range(output.shape[2]):
+                    x = np.zeros(len(train_loader.dataset))
+                    y = np.zeros(len(train_loader.dataset))
+                    for k in range(len(train_loader.dataset)):
+                        x[k] = output[k, i, j]
+                        y[k] = target[k]
+                    if np.var(x) == 0:
+                        r_matrix[i, j], p_matrix[i, j] = 0, 1
+                    else:
+                        r_matrix[i, j], p_matrix[i, j] = scipy.stats.pearsonr(x, y)
+
+        r_df = pd.DataFrame(r_matrix)
+        p_df = pd.DataFrame(p_matrix)
+        rp_df = pd.concat([r_df, p_df])
+        rname = 'D:/code/DTI_data/result/processed' + "_cv" + str(idx) + ".csv"
+        rp_df.to_csv(rname)
+
         loss_df = pd.DataFrame(loss_list)
         loss_df.to_csv(filename, header=False, index=False)
         acc_sum += accuracy
@@ -305,8 +368,8 @@ def main():
     parser.add_argument('-B', '--batchsize', type=int, default=20, metavar='B')
     parser.add_argument('-E', '--epochs', type=int, default=5000, metavar='N')
     parser.add_argument('-C', '--cuda', action='store_true', default=False)
-    parser.add_argument('-DS', '--dataseed', type=int, default=2, metavar='S')
-    parser.add_argument('-MS', '--modelseed', type=int, default=2, metavar='S')
+    parser.add_argument('-DS', '--dataseed', type=int, default=1, metavar='S')
+    parser.add_argument('-MS', '--modelseed', type=int, default=1, metavar='S')
     parser.add_argument('-GG', '--groupgraph', default='D:/code/DTI_data/network_distance/grouplevel.edge')
     parser.add_argument('-DP', '--datapath', default='D:/code/DTI_data/output/')
     parser.add_argument('-IC', '--channel', type=int, default=3, metavar='N')
@@ -341,8 +404,8 @@ def main():
     # weight_decay = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5]
     # momentum = [0.85, 0.9, 0.95]
     # drop_array = [0.2, 0.3, 0.4, 0.5]
-    lr_array = [1e-3]
-    weight_decay = [0.01]
+    lr_array = [0.1]
+    weight_decay = [0.005]
     momentum = [0.85]
     drop_array = [0.3]
 
@@ -356,7 +419,7 @@ def main():
             for mmt in momentum:
                 for drop in drop_array:
                     print("lr: ", lr, "w_d: ", w_d, "momentum: ", mmt, "drop: ", drop)
-                    acc, loss, epoch = cross_validate(args, dataset, 20, lr, w_d, mmt, drop, perm, net_parameters)
+                    acc, loss, epoch = cross_validate(args, dataset, 10, lr, w_d, mmt, drop, perm, net_parameters)
                     print("lr: ", lr, "w_d:  ", w_d, "momentum: ", mmt, "drop: ", drop, "acc: ", acc)
                     df = pd.read_csv(result_path, header=0)
                     df = df.append({'learn_rate': lr, 'weight_decay': w_d,

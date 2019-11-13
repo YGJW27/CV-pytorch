@@ -126,9 +126,9 @@ class Net(nn.Module):
         x = self.pool(x)
 
         # Sparse Layer
-        sparse_3 = self.sparse.unsqueeze(0)
+        sparse_ = self.sparse.unsqueeze(0)
         m, n = self.sparse.shape
-        sparse_expand = sparse_3.expand((self.sparse_dim, m, n))
+        sparse_expand = sparse_.expand((self.sparse_dim, m, n))
         sparse_sigmoid = torch.sigmoid(sparse_expand)
         x = x * sparse_sigmoid
 
