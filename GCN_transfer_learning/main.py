@@ -61,17 +61,34 @@ class Graph_MaxPool(nn.Module):
         return x
 
 
+class Permute(nn.Module):
+    def __init__(self, indices):
+        super(Permute, self).__init__()
+        self.indices = indices
+
+    def __call__(self, input):
+        B, C, V = input.shape
+        V_perm = len(self.indices)
+        input_append = torch.zeros([B, C, V_perm - V], dtype=input.dtype, device=input.device)
+        input_new = torch.cat((input, input_append), dim=2)
+        input_new_perm = input_new[:, :, self.indices]
+        return input_new_perm
+
+
 class Net(nn.Module):
     def __init__(self, net_parameters, drop, pretrain_params):
         super(Net, self).__init__()
 
         # network parameters
-        IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, L = net_parameters
-        FC1_IN = CL2_F * IN_V // 16
+        IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, L, perm = net_parameters
+        FC1_IN = CL2_F * len(perm) // 16
         self.drop = drop
 
         # Batch Normalizaton Layer
         self.norm = nn.BatchNorm1d(IN_C, affine=False)
+
+        # Perm Layer
+        self.perm = Permute(perm)
 
         # Graph Convolutional Layer 1
         self.conv1 = Graph_Conv(IN_C, CL1_F, CL1_K, L[0])
@@ -98,11 +115,14 @@ class Net(nn.Module):
         Fin = FC1_IN
         Fout = FC1_F
         scale = np.sqrt(2.0 / (Fin + Fout))
+        self.fc1.weight.data.uniform_(-scale, scale)
+        self.fc1.bias.data.fill_(0.0)
+        """
         self.fc1.weight.data = pretrain_params['FC1_w']
         self.fc1.bias.data = pretrain_params['FC1_b']
         self.fc1.weight.requires_grad_(True)
         self.fc1.bias.requires_grad_(True)
-
+        """
         # Full Connected Layer 2
         self.fc2 = nn.Linear(FC1_F, FC2_F)
         Fin = FC1_F
@@ -115,12 +135,15 @@ class Net(nn.Module):
         self.pool = Graph_MaxPool(4)
 
         # Sparse Layer
-        sparse = torch.zeros((CL2_F, IN_V // 16), dtype=torch.float32)
+        sparse = torch.zeros((CL2_F, len(perm) // 16), dtype=torch.float32)
         self.sparse = nn.Parameter(sparse, requires_grad=True)
 
     def forward(self, x):
         # Batch Normalization Layer
         x = self.norm(x)
+
+        # Perm Layer
+        x = self.perm(x)
 
         # Convolutional Layer 1
         x = self.conv1(x)
@@ -189,19 +212,6 @@ class MRI_Dataset(torch.utils.data.Dataset):
 class Array_To_Tensor(object):
     def __call__(self, input):
         return torch.from_numpy(input).float()
-
-
-class Perm_Data(object):
-    def __init__(self, indices):
-        self.indices = indices
-
-    def __call__(self, pic):
-        C, V = pic.shape
-        V_perm = len(self.indices)
-        pic_append = torch.zeros([C, V_perm - V], dtype=pic.dtype)
-        pic_new = torch.cat((pic, pic_append), dim=1)
-        pic_new_perm = pic_new[:, self.indices]
-        return pic_new_perm
 
 
 def train(model, device, train_loader, optimizer, weight_decay, epoch):
@@ -282,16 +292,14 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
         train_loader = torch.utils.data.DataLoader(
             MRI_Dataset(dataset[train_idx],
                         transform=transforms.Compose([
-                            Array_To_Tensor(),
-                            Perm_Data(perm)
+                            Array_To_Tensor()
                         ])),
             batch_size=args.batchsize, shuffle=True, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
             MRI_Dataset(dataset[test_idx],
                         transform=transforms.Compose([
-                            Array_To_Tensor(),
-                            Perm_Data(perm)
+                            Array_To_Tensor()
                         ])),
             batch_size=args.batchsize, shuffle=True, **kwargs)
         loss_list = []
@@ -300,7 +308,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
             + str(drop) + "_cv" + str(idx) + ".csv"
 
         for epoch in range(1, args.epochs + 1):
-            lr_decay = lr * np.exp(-5 * epoch / args.epochs)
+            lr_decay = lr * np.exp(-6 * epoch / args.epochs)
             print("lr: ", lr_decay)
             optimizer = torch.optim.SGD(model.parameters(), lr=lr_decay, momentum=mmt)
             train(model, device, train_loader, optimizer, w_d, epoch)
@@ -319,8 +327,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
         train_loader = torch.utils.data.DataLoader(
             MRI_Dataset(dataset[train_idx],
                         transform=transforms.Compose([
-                            Array_To_Tensor(),
-                            Perm_Data(perm)
+                            Array_To_Tensor()
                         ])),
             batch_size=train_idx.size, shuffle=True, **kwargs)
 
@@ -329,6 +336,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
         model.eval()
         for batch_idx, (data, target) in enumerate(train_loader):
             output = nn.BatchNorm1d(3, affine=False)(data)
+            output = model.perm(output)
             output = model.conv1(output)
             output = F.relu(output)
             output = model.pool(output)
@@ -388,14 +396,14 @@ def main():
 
     # net parameters
     IN_C = args.channel
-    IN_V = len(perm)
+    IN_V = 90
     CL1_F = 16
     CL1_K = 8
     CL2_F = 32
     CL2_K = 8
     FC1_F = 50
     FC2_F = 2
-    net_parameters = [IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, r_L_torch]
+    net_parameters = [IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, r_L_torch, perm]
 
     dataset = data_list(args.datapath)
 
