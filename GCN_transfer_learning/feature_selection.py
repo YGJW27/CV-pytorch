@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse
 from sklearn.model_selection import KFold
+from sklearn.svm import SVC
 
 import coarsening
 
@@ -203,7 +204,7 @@ class MRI_Dataset(torch.utils.data.Dataset):
         if self.transform is not None:
             pic = self.transform(pic)
 
-        return pic, target
+        return pic, target, idx
 
     def __len__(self):
         return len(self.data_list)
@@ -273,68 +274,84 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
     device = torch.device("cuda" if use_cuda else "cpu")
 
     acc_sum = 0
+
+    torch.manual_seed(args.modelseed)
+    torch.cuda.manual_seed_all(args.modelseed)
+
+    if os.access(args.model, os.F_OK):
+        pretrain_params = torch.load(args.model, map_location='cpu')
+        print('—————Model Loaded—————')
+    else:
+        print('————Loading Failed————')
+
+    model = Net(net_parameters, drop, pretrain_params)
+    model.to(device)
+    kwargs = {'num_workers': 3, 'pin_memory': True} if use_cuda else {}
+    data_loader = torch.utils.data.DataLoader(
+        MRI_Dataset(dataset,
+                    transform=transforms.Compose([
+                        Array_To_Tensor()
+                    ])),
+        batch_size=dataset.size, shuffle=True, **kwargs)
+
+    model.train()
+    for batch_idx, (data, target, fileidx) in enumerate(data_loader):
+        output = nn.BatchNorm1d(3, affine=False)(data)
+        output = model.perm(output)
+        output = model.conv1(output)
+        output = F.relu(output)
+        output = model.pool(output)
+        output = model.conv2(output)
+        output = F.relu(output)
+        output = model.pool(output)
+
+        r_matrix = np.zeros((output.shape[1], output.shape[2]))
+        p_matrix = np.zeros((output.shape[1], output.shape[2]))
+        var_matrix = np.zeros((output.shape[1], output.shape[2]))
+
+        for i in range(output.shape[1]):
+            for j in range(output.shape[2]):
+                x = np.zeros(len(data_loader.dataset))
+                y = np.zeros(len(data_loader.dataset))
+                for k in range(len(data_loader.dataset)):
+                    x[k] = output[k, i, j]
+                    y[k] = target[k]
+                if np.var(x) == 0:
+                    r_matrix[i, j], p_matrix[i, j] = 0, 1
+                else:
+                    r_matrix[i, j], p_matrix[i, j] = scipy.stats.pearsonr(x, y)
+                var_matrix[i, j] = np.var(x)
+
+    ii = np.unravel_index(np.argsort(var_matrix.ravel())[-10:], var_matrix.shape)    # get the indices of top 90
+    x = output[:, ii[0], ii[1]]
+    svc = SVC(kernel="rbf", random_state=0, gamma='scale', C=15)
+    model_svm = svc.fit(x, target.numpy())
+    predict_train = model_svm.predict(x)
+    dataset_new = dataset[fileidx][predict_train == target.numpy()]
+    out = dataset[fileidx][~(predict_train == target.numpy())]
+    out_df = pd.DataFrame(out, columns=["file path", "status"])
+    out_df.to_csv("D:/code/DTI_data/result/outliner.csv", index=False)
+    # cv = dataset_new.shape[0]
+
     kf = KFold(n_splits=cv, shuffle=True, random_state=args.dataseed)
-    for idx, (train_idx, test_idx) in enumerate(kf.split(dataset)):
-        torch.manual_seed(args.modelseed)
-        torch.cuda.manual_seed_all(args.modelseed)
-
-        if os.access(args.model, os.F_OK):
-            pretrain_params = torch.load(args.model, map_location='cpu')
-            print('—————Model Loaded—————')
-        else:
-            print('————Loading Failed————')
-
-        model = Net(net_parameters, drop, pretrain_params)
-        model.to(device)
-
+    for idx, (train_idx, test_idx) in enumerate(kf.split(dataset_new)):
         print('--------Cross Validation: {}/{} --------\n'.format(idx + 1, cv))
-        kwargs = {'num_workers': 3, 'pin_memory': True} if use_cuda else {}
         train_loader = torch.utils.data.DataLoader(
-            MRI_Dataset(dataset[train_idx],
-                        transform=transforms.Compose([
-                            Array_To_Tensor()
-                        ])),
-            batch_size=args.batchsize, shuffle=True, **kwargs)
-
-        test_loader = torch.utils.data.DataLoader(
-            MRI_Dataset(dataset[test_idx],
-                        transform=transforms.Compose([
-                            Array_To_Tensor()
-                        ])),
-            batch_size=args.batchsize, shuffle=True, **kwargs)
-        loss_list = []
-        filename = "D:/code/DTI_data/result/" + "lr" + str(lr) \
-            + "_wd" + str(w_d) + "_mmt" + str(mmt) + "_drop" \
-            + str(drop) + "_cv" + str(idx) + ".csv"
-
-        for epoch in range(1, args.epochs + 1):
-            lr_decay = lr * np.exp(-6 * epoch / args.epochs)
-            print("lr: ", lr_decay)
-            optimizer = torch.optim.SGD(model.parameters(), lr=lr_decay, momentum=mmt)
-            train(model, device, train_loader, optimizer, w_d, epoch)
-            accuracy, loss = test(model, device, test_loader)
-            loss_list.append(loss)
-
-        weightfile = "D:/code/DTI_data/result/" + "weight" + "_cv" + str(idx) + ".csv"
-        w_df = pd.DataFrame(model.fc1.weight.data.cpu().numpy())
-        w_df.to_csv(weightfile)
-
-        sparsefile = "D:/code/DTI_data/result/" + "sparse" + "_cv" + str(idx) + ".csv"
-        sp = torch.sigmoid(model.sparse.cpu()).data.numpy()
-        s_df = pd.DataFrame(sp)
-        s_df.to_csv(sparsefile)
-
-        train_loader = torch.utils.data.DataLoader(
-            MRI_Dataset(dataset[train_idx],
+            MRI_Dataset(dataset_new[train_idx],
                         transform=transforms.Compose([
                             Array_To_Tensor()
                         ])),
             batch_size=train_idx.size, shuffle=True, **kwargs)
 
-        torch.manual_seed(args.modelseed)
-        torch.cuda.manual_seed_all(args.modelseed)
-        model.eval()
-        for batch_idx, (data, target) in enumerate(train_loader):
+        test_loader = torch.utils.data.DataLoader(
+            MRI_Dataset(dataset_new[test_idx],
+                        transform=transforms.Compose([
+                            Array_To_Tensor()
+                        ])),
+            batch_size=test_idx.size, shuffle=True, **kwargs)
+
+        model.train()
+        for batch_idx, (data, target, fileidx) in enumerate(train_loader):
             output = nn.BatchNorm1d(3, affine=False)(data)
             output = model.perm(output)
             output = model.conv1(output)
@@ -346,6 +363,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
 
             r_matrix = np.zeros((output.shape[1], output.shape[2]))
             p_matrix = np.zeros((output.shape[1], output.shape[2]))
+            var_matrix = np.zeros((output.shape[1], output.shape[2]))
 
             for i in range(output.shape[1]):
                 for j in range(output.shape[2]):
@@ -358,17 +376,49 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
                         r_matrix[i, j], p_matrix[i, j] = 0, 1
                     else:
                         r_matrix[i, j], p_matrix[i, j] = scipy.stats.pearsonr(x, y)
+                    var_matrix[i, j] = np.var(x)
 
+        ii = np.unravel_index(np.argsort(var_matrix.ravel())[-10:], var_matrix.shape)    # get the indices of top 90
+        x = output[:, ii[0], ii[1]]
+        svc = SVC(kernel="rbf", random_state=0, gamma='scale', C=7)
+        model_svm = svc.fit(x, target.numpy())
+        predict_train = model_svm.predict(x)
+        # train_outliner = dataset_new[train_idx][fileidx][~(predict_train == target.numpy())]
+
+        model.eval()
+        for batch_idx, (data, target, fileidx) in enumerate(test_loader):
+            output = nn.BatchNorm1d(3, affine=False)(data)
+            output = model.perm(output)
+            output = model.conv1(output)
+            output = F.relu(output)
+            output = model.pool(output)
+            output = model.conv2(output)
+            output = F.relu(output)
+            output = model.pool(output)
+
+        x_t = output[:, ii[0], ii[1]]
+        predict_test = model_svm.predict(x_t)
+        correct = np.sum(predict_test == target.numpy())
+        accuracy = correct / x_t.shape[0]
+        print("accuracy: {:.4f}%\n".format(accuracy * 100))
+        # test_outliner = dataset_new[test_idx][fileidx][~(predict_test == target.numpy())]
+        """
         r_df = pd.DataFrame(r_matrix)
         p_df = pd.DataFrame(p_matrix)
         rp_df = pd.concat([r_df, p_df])
         rname = 'D:/code/DTI_data/result/processed' + "_cv" + str(idx) + ".csv"
         rp_df.to_csv(rname)
+        """
+        # col = ["file path", "status"]
+        # train_outliner_df = pd.DataFrame(train_outliner, columns=col)
+        # space_df = pd.DataFrame([["", ""]], columns=col)
+        # test_outliner_df = pd.DataFrame(test_outliner, columns=col)
+        # outliner_df = pd.concat([train_outliner_df, space_df, test_outliner_df])
+        # outliner_name = 'D:/code/DTI_data/result/outliner' + "_cv" + str(idx) + ".csv"
+        # outliner_df.to_csv(outliner_name)
 
-        loss_df = pd.DataFrame(loss_list)
-        loss_df.to_csv(filename, header=False, index=False)
         acc_sum += accuracy
-    return acc_sum / cv, loss, epoch
+    return acc_sum / cv
 
 
 def main():
@@ -379,8 +429,7 @@ def main():
     parser.add_argument('-DS', '--dataseed', type=int, default=1, metavar='S')
     parser.add_argument('-MS', '--modelseed', type=int, default=1, metavar='S')
     parser.add_argument('-GG', '--groupgraph', default='D:/code/DTI_data/network_distance/grouplevel.edge')
-    parser.add_argument('-DP', '--datapath', default='D:/code/DTI_data/output/')
-    parser.add_argument('-IC', '--channel', type=int, default=3, metavar='N')
+    parser.add_argument('-DP', '--datapath', default='D:/code/DTI_data/output/local_metrics/')
     parser.add_argument('-M', '--model', default='model.pth', metavar='PATH', help='path to model')
     args = parser.parse_args()
 
@@ -395,13 +444,13 @@ def main():
         r_L_torch.append(torch.from_numpy(coarsening.rescaled_L(l).toarray()).float())
 
     # net parameters
-    IN_C = args.channel
+    IN_C = 3
     IN_V = 90
-    CL1_F = 16
+    CL1_F = 8
     CL1_K = 8
-    CL2_F = 32
+    CL2_F = 8
     CL2_K = 8
-    FC1_F = 50
+    FC1_F = 2
     FC2_F = 2
     net_parameters = [IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, r_L_torch, perm]
 
@@ -412,10 +461,10 @@ def main():
     # weight_decay = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5]
     # momentum = [0.85, 0.9, 0.95]
     # drop_array = [0.2, 0.3, 0.4, 0.5]
-    lr_array = [0.1]
+    lr_array = [0.01]
     weight_decay = [0.005]
     momentum = [0.85]
-    drop_array = [0.3]
+    drop_array = [0]
 
     result_path = 'D:/code/DTI_data/result/cross_validation.csv'
     df = pd.DataFrame(columns=['learn_rate', 'weight_decay', 'momentum',
@@ -427,7 +476,7 @@ def main():
             for mmt in momentum:
                 for drop in drop_array:
                     print("lr: ", lr, "w_d: ", w_d, "momentum: ", mmt, "drop: ", drop)
-                    acc, loss, epoch = cross_validate(args, dataset, 98, lr, w_d, mmt, drop, perm, net_parameters)
+                    acc, loss, epoch = cross_validate(args, dataset, 20, lr, w_d, mmt, drop, perm, net_parameters)
                     print("lr: ", lr, "w_d:  ", w_d, "momentum: ", mmt, "drop: ", drop, "acc: ", acc)
                     df = pd.read_csv(result_path, header=0)
                     df = df.append({'learn_rate': lr, 'weight_decay': w_d,
