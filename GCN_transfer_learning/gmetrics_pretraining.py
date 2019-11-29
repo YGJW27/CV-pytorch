@@ -314,6 +314,24 @@ def test(args, model, device, test_loader):
     print('\nTest set: Average loss: {:.4f}, Accuracy: {:.4f}%\n'.format(
         test_loss, 100. * accuracy))
 
+    return accuracy
+
+
+def knn(w, k):
+    idx = np.argsort(w)[:,::-1]
+    idx = idx[:,1:k+1]
+    value = np.sort(w)
+    value = value[:,::-1]
+    value = value[:,1:k+1]
+    i = np.arange(0, w.shape[0]).repeat(k)
+    j = idx.reshape(-1)
+    data = value.reshape(-1)
+    w_s = scipy.sparse.coo_matrix((data, (i, j)), shape=w.shape)
+
+    bigger = w_s.T > w_s
+    w_s = w_s - w_s.multiply(bigger) + w_s.T.multiply(bigger)
+    return w_s.toarray()
+
 
 def node_select(PATH):
     df = pd.read_csv(PATH, header=None)
@@ -324,16 +342,18 @@ def node_select(PATH):
     iixy = np.concatenate((iix, iiy), axis=1)
 
     groupgraph = "D:/code/DTI_data/network_distance/grouplevel.edge"
-    ggraph = pd.read_csv(groupgraph, sep='\t', header=None).to_numpy()
+    ggraph = pd.read_csv(groupgraph, sep='\t', header=None).to_numpy()  # k-NN graph
 
     dist = sklearn.metrics.pairwise_distances(iixy, metric="euclidean")
-    dist_exp = np.exp(-dist**2 / (2 * 1.5**2))
+    dist = np.exp(-dist**2 / (2 * 1.5**2))                          # Fully connected graph
 
-    ggraph_ev, _ = np.linalg.eig(ggraph)
-    dist_ev, _ = np.linalg.eig(dist_exp)
+    dist = knn(dist, 8)             # k-NN graph
 
-    gindex = np.argsort(ggraph_ev)
-    dindex = np.argsort(dist_ev)
+    ggraph_deg = ggraph.sum(axis=0)
+    dist_deg = dist.sum(axis=0)
+
+    gindex = np.argsort(ggraph_deg)
+    dindex = np.argsort(dist_deg)
 
     sort_index = np.zeros((90, 2))
     sort_index[gindex] = iixy[dindex]
@@ -390,13 +410,17 @@ def main():
     model = Net(net_parameters).to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
+    acc_list = []
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch)
-        test(args, model, device, test_loader)
+        acc = test(args, model, device, test_loader)
+        acc_list.append(acc)
+
+    pd.DataFrame(acc_list).to_csv('D:/code/DTI_data/result/pre-train_cnn_acc.csv', header=False)
 
     """
     # ----------------- GCN part ----------------- #
-    PATH = "D:/code/DTI_data/pretrain/191117_sr_0.005_var_cnn8/epoch_25.csv"
+    PATH = "D:/code/DTI_data/pretrain/191129_sr_0.001_var/epoch_30.csv"
     node_index = node_select(PATH)
 
     # group-level graph
@@ -426,9 +450,13 @@ def main():
     model = Net_GCN_mnist(net_GCN_parameters).to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
+    acc_list = []
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch, stat="GCN")
-        test(args, model, device, test_loader)
+        acc = test(args, model, device, test_loader)
+        acc_list.append(acc)
+
+    pd.DataFrame(acc_list).to_csv('D:/code/DTI_data/result/pre-train_mix_acc.csv', header=False)
 
     GCL1_w = model.conv2.kernel.weight.data
     GCL1_b = model.conv2.kernel.bias.data
