@@ -228,15 +228,15 @@ class Net_GCN_mnist(nn.Module):
         # Grid to Graph
         x = x[:, :, self.node_index[:,0], self.node_index[:,1]]
 
+        # Batch Normalization Layer
+        x = self.norm(x)
+
         # Permute Nodes
         B, C, V = x.shape
         V_perm = len(self.perm)
         x_append = torch.zeros([B, C, V_perm - V], dtype=x.dtype, device=x.device)
         x = torch.cat((x, x_append), dim=2)
         x = x[:, :, self.perm]
-
-        # Batch Normalization Layer
-        x = self.norm(x)
 
         # Graph Convolutional Layer 1
         x = self.conv2(x)
@@ -271,7 +271,7 @@ def train(args, model, device, train_loader, optimizer, epoch, stat="CCN"):
         loss_L1 = torch.norm(torch.sigmoid(model.sparse), p=1)
         loss_var = torch.var(torch.sigmoid(model.sparse).view(-1,))
         if stat == "CCN":
-            sparse_rate = 0.005
+            sparse_rate = 0.001
             var_rate = 0.01
         else:
             sparse_rate = 0
@@ -293,7 +293,7 @@ def train(args, model, device, train_loader, optimizer, epoch, stat="CCN"):
     if stat == "CCN":
         w = torch.sigmoid(model.sparse.cpu()).data.numpy()
         df = pd.DataFrame(w)
-        df.to_csv("D:/code/DTI_data/output/epoch_{}.csv".format(epoch), header=False, index=False)
+        df.to_csv("D:/code/DTI_data/pretrain/epoch_{}.csv".format(epoch), header=False, index=False)
 
 
 def test(args, model, device, test_loader):
@@ -314,6 +314,24 @@ def test(args, model, device, test_loader):
     print('\nTest set: Average loss: {:.4f}, Accuracy: {:.4f}%\n'.format(
         test_loss, 100. * accuracy))
 
+    return accuracy
+
+
+def knn(w, k):
+    idx = np.argsort(w)[:,::-1]
+    idx = idx[:,1:k+1]
+    value = np.sort(w)
+    value = value[:,::-1]
+    value = value[:,1:k+1]
+    i = np.arange(0, w.shape[0]).repeat(k)
+    j = idx.reshape(-1)
+    data = value.reshape(-1)
+    w_s = scipy.sparse.coo_matrix((data, (i, j)), shape=w.shape)
+
+    bigger = w_s.T > w_s
+    w_s = w_s - w_s.multiply(bigger) + w_s.T.multiply(bigger)
+    return w_s.toarray()
+
 
 def node_select(PATH):
     df = pd.read_csv(PATH, header=None)
@@ -324,16 +342,18 @@ def node_select(PATH):
     iixy = np.concatenate((iix, iiy), axis=1)
 
     groupgraph = "D:/code/DTI_data/network_distance/grouplevel.edge"
-    ggraph = pd.read_csv(groupgraph, sep='\t', header=None).to_numpy()
+    ggraph = pd.read_csv(groupgraph, sep='\t', header=None).to_numpy()  # k-NN graph
 
     dist = sklearn.metrics.pairwise_distances(iixy, metric="euclidean")
-    dist_exp = np.exp(-dist**2 / (2 * 1.5**2))
+    dist = np.exp(-dist**2 / (2 * 1.5**2))                          # Fully connected graph
 
-    ggraph_ev, _ = np.linalg.eig(ggraph)
-    dist_ev, _ = np.linalg.eig(dist_exp)
+    dist = knn(dist, 8)             # k-NN graph
 
-    gindex = np.argsort(ggraph_ev)
-    dindex = np.argsort(dist_ev)
+    ggraph_deg = ggraph.sum(axis=0)
+    dist_deg = dist.sum(axis=0)
+
+    gindex = np.argsort(ggraph_deg)
+    dindex = np.argsort(dist_deg)
 
     sort_index = np.zeros((90, 2))
     sort_index[gindex] = iixy[dindex]
@@ -380,23 +400,27 @@ def main():
     IN_C = 1
     CL1_F = 3
     CL1_K = 5
-    CL2_F = 16
+    CL2_F = 8
     CL2_K = 5
-    CL3_F = 32
+    CL3_F = 8
     CL3_K = 5
-    FC1_F = 100
+    FC1_F = 50
     FC2_F = 10
     net_parameters = [IN_W, IN_H, IN_C, CL1_F, CL1_K, CL2_F, CL2_K, CL3_F, CL3_K, FC1_F, FC2_F]
     model = Net(net_parameters).to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
+    acc_list = []
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch)
-        test(args, model, device, test_loader)
+        acc = test(args, model, device, test_loader)
+        acc_list.append(acc)
+
+    pd.DataFrame(acc_list).to_csv('D:/code/DTI_data/result/pre-train_cnn_acc.csv', header=False)
 
     """
     # ----------------- GCN part ----------------- #
-    PATH = "D:/code/DTI_data/pretrain/191105_sr_0.005_var/epoch_100.csv"
+    PATH = "D:/code/DTI_data/pretrain/191129_sr_0.001_var/epoch_30.csv"
     node_index = node_select(PATH)
 
     # group-level graph
@@ -416,9 +440,9 @@ def main():
     CL1_F = 3
     CL1_K = 5
     IN_V = len(perm)
-    CL2_F = 16
+    CL2_F = 8
     CL2_K = 8
-    CL3_F = 32
+    CL3_F = 8
     CL3_K = 8
     FC1_F = 50
     FC2_F = 10
@@ -426,9 +450,13 @@ def main():
     model = Net_GCN_mnist(net_GCN_parameters).to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
+    acc_list = []
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch, stat="GCN")
-        test(args, model, device, test_loader)
+        acc = test(args, model, device, test_loader)
+        acc_list.append(acc)
+
+    pd.DataFrame(acc_list).to_csv('D:/code/DTI_data/result/pre-train_mix_acc.csv', header=False)
 
     GCL1_w = model.conv2.kernel.weight.data
     GCL1_b = model.conv2.kernel.bias.data
@@ -445,7 +473,7 @@ def main():
         'FC1_w': FC1_w,
         'FC1_b': FC1_b
     }, args.model)
-
+    
 
 if __name__ == "__main__":
     main()
