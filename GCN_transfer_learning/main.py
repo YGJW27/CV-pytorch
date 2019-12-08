@@ -80,8 +80,8 @@ class Net(nn.Module):
         super(Net, self).__init__()
 
         # network parameters
-        IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, L, perm = net_parameters
-        FC1_IN = CL2_F * len(perm) // 16
+        IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC_F, L, perm = net_parameters
+        FC_IN = CL2_F * len(perm) // 16
         self.drop = drop
 
         # Batch Normalizaton Layer
@@ -114,21 +114,13 @@ class Net(nn.Module):
         # self.conv2.kernel.weight.data.uniform_(-scale, scale)
         # self.conv2.kernel.bias.data.fill_(0.0)
 
-        # Full Connected Layer 1
-        self.fc1 = nn.Linear(FC1_IN, FC1_F)
-        Fin = FC1_IN
-        Fout = FC1_F
+        # Full Connected Layer
+        self.fc = nn.Linear(FC_IN, FC_F)
+        Fin = FC_IN
+        Fout = FC_F
         scale = np.sqrt(2.0 / (Fin + Fout))
-        self.fc1.weight.data.uniform_(-scale, scale)
-        self.fc1.bias.data.fill_(0.0)
-
-        # Full Connected Layer 2
-        self.fc2 = nn.Linear(FC1_F, FC2_F)
-        Fin = FC1_F
-        Fout = FC2_F
-        scale = np.sqrt(2.0 / (Fin + Fout))
-        self.fc2.weight.data.uniform_(-scale, scale)
-        self.fc2.bias.data.fill_(0.0)
+        self.fc.weight.data.uniform_(-scale, scale)
+        self.fc.bias.data.fill_(0.0)
 
         # Max Pooling
         self.pool = Graph_MaxPool(4)
@@ -161,12 +153,7 @@ class Net(nn.Module):
         # Full Connected Layer 1
         x = x.view(x.shape[0], -1)
         x = F.dropout(x, p=self.drop, training=self.training)
-        x = self.fc1(x)
-        # x = torch.sigmoid(x)
-        
-
-        # Full Connected Layer 2
-        # x = self.fc2(x)
+        x = self.fc(x)
 
         return x
 
@@ -203,7 +190,7 @@ class MRI_Dataset(torch.utils.data.Dataset):
         if self.transform is not None:
             pic = self.transform(pic)
 
-        return pic, target
+        return pic, target, idx
 
     def __len__(self):
         return len(self.data_list)
@@ -216,24 +203,21 @@ class Array_To_Tensor(object):
 
 def train(model, device, train_loader, optimizer, weight_decay, epoch):
     model.train()
-    for batch_idx, (data, target) in enumerate(train_loader):
+    for batch_idx, (data, target, idx) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
 
         # Forward
         output = model(data)
         cls_loss = F.cross_entropy(output, target)
-        sparse_rate = 0.01
-        # var_rate = 0.05
-        # L1_loss = torch.norm(torch.sigmoid(model.sparse), p=1)
-        # var_loss = torch.var(torch.sigmoid(model.sparse).view(-1,))
+        sparse_rate = 0
         L2_loss = 0
         L1_loss = 0
         for name, param in model.named_parameters():
             if ('weight' in name) and ('fc' in name):
                 L2_loss += torch.norm(param)
                 L1_loss += torch.norm(param, p=1)
-
+        weight_decay = 0.01
         loss = cls_loss + weight_decay * L2_loss + sparse_rate * L1_loss
 
         # Backword
@@ -254,7 +238,7 @@ def test(model, device, test_loader):
     test_loss = 0
     correct = 0
     with torch.no_grad():
-        for data, target in test_loader:
+        for data, target, idx in test_loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
             test_loss += F.cross_entropy(output, target, reduction='sum').item()
@@ -312,7 +296,8 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
         for epoch in range(1, args.epochs + 1):
             lr_decay = lr * np.exp(-epoch / args.epochs)
             print("lr: ", lr_decay)
-            optimizer = torch.optim.SGD(model.parameters(), lr=lr_decay, momentum=mmt)
+            # optimizer = torch.optim.SGD(model.parameters(), lr=lr_decay, momentum=mmt)
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr_decay)
             train(model, device, train_loader, optimizer, w_d, epoch)
             accuracy, loss = test(model, device, test_loader)
             loss_list.append(loss)
@@ -378,10 +363,10 @@ def main():
     parser.add_argument('-B', '--batchsize', type=int, default=20, metavar='B')
     parser.add_argument('-E', '--epochs', type=int, default=5000, metavar='N')
     parser.add_argument('-C', '--cuda', action='store_true', default=False)
-    parser.add_argument('-DS', '--dataseed', type=int, default=1, metavar='S')
-    parser.add_argument('-MS', '--modelseed', type=int, default=1, metavar='S')
+    parser.add_argument('-DS', '--dataseed', type=int, default=2, metavar='S')
+    parser.add_argument('-MS', '--modelseed', type=int, default=2, metavar='S')
     parser.add_argument('-GG', '--groupgraph', default='D:/code/DTI_data/network_distance/grouplevel.edge')
-    parser.add_argument('-DP', '--datapath', default='D:/code/DTI_data/output/local_metrics_gcn/')
+    parser.add_argument('-DP', '--datapath', default='D:/code/DTI_data/output/local_metrics_box/')
     parser.add_argument('-M', '--model', default='model.pth', metavar='PATH', help='path to model')
     args = parser.parse_args()
 
@@ -402,9 +387,8 @@ def main():
     CL1_K = 8
     CL2_F = 8
     CL2_K = 8
-    FC1_F = 2
-    FC2_F = 2
-    net_parameters = [IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, r_L_torch, perm]
+    FC_F = 2
+    net_parameters = [IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC_F, r_L_torch, perm]
 
     dataset = data_list(args.datapath)
 
@@ -413,7 +397,7 @@ def main():
     # weight_decay = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5]
     # momentum = [0.85, 0.9, 0.95]
     # drop_array = [0.2, 0.3, 0.4, 0.5]
-    lr_array = [0.01]
+    lr_array = [0.005]
     weight_decay = [0.005]
     momentum = [0.85]
     drop_array = [0]
@@ -428,7 +412,7 @@ def main():
             for mmt in momentum:
                 for drop in drop_array:
                     print("lr: ", lr, "w_d: ", w_d, "momentum: ", mmt, "drop: ", drop)
-                    acc, loss, epoch = cross_validate(args, dataset, 20, lr, w_d, mmt, drop, perm, net_parameters)
+                    acc, loss, epoch = cross_validate(args, dataset, 40, lr, w_d, mmt, drop, perm, net_parameters)
                     print("lr: ", lr, "w_d:  ", w_d, "momentum: ", mmt, "drop: ", drop, "acc: ", acc)
                     df = pd.read_csv(result_path, header=0)
                     df = df.append({'learn_rate': lr, 'weight_decay': w_d,
