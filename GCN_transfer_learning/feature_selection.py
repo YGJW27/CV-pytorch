@@ -297,6 +297,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
     model.train()
     for batch_idx, (data, target, fileidx) in enumerate(data_loader):
         output = nn.BatchNorm1d(3, affine=False)(data)
+        """
         output = model.perm(output)
         output = model.conv1(output)
         output = F.relu(output)
@@ -304,6 +305,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
         output = model.conv2(output)
         output = F.relu(output)
         output = model.pool(output)
+        """
 
         r_matrix = np.zeros((output.shape[1], output.shape[2]))
         p_matrix = np.zeros((output.shape[1], output.shape[2]))
@@ -322,7 +324,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
                     r_matrix[i, j], p_matrix[i, j] = scipy.stats.pearsonr(x, y)
                 var_matrix[i, j] = np.var(x)
 
-    ii = np.unravel_index(np.argsort(var_matrix.ravel())[-10:], var_matrix.shape)    # get the indices of top 90
+    ii = np.unravel_index(np.argsort(var_matrix.ravel())[-10:], var_matrix.shape)    # get the indices of top 10
     x = output[:, ii[0], ii[1]]
     svc = SVC(kernel="rbf", random_state=0, gamma='scale', C=15)
     model_svm = svc.fit(x, target.numpy())
@@ -332,6 +334,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
     out_df = pd.DataFrame(out, columns=["file path", "status"])
     out_df.to_csv("D:/code/DTI_data/result/outliner.csv", index=False)
     # cv = dataset_new.shape[0]
+    dataset_new = dataset
 
     kf = KFold(n_splits=cv, shuffle=True, random_state=args.dataseed)
     for idx, (train_idx, test_idx) in enumerate(kf.split(dataset_new)):
@@ -353,6 +356,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
         model.train()
         for batch_idx, (data, target, fileidx) in enumerate(train_loader):
             output = nn.BatchNorm1d(3, affine=False)(data)
+            """
             output = model.perm(output)
             output = model.conv1(output)
             output = F.relu(output)
@@ -360,6 +364,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
             output = model.conv2(output)
             output = F.relu(output)
             output = model.pool(output)
+            """
 
             r_matrix = np.zeros((output.shape[1], output.shape[2]))
             p_matrix = np.zeros((output.shape[1], output.shape[2]))
@@ -388,6 +393,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
         model.eval()
         for batch_idx, (data, target, fileidx) in enumerate(test_loader):
             output = nn.BatchNorm1d(3, affine=False)(data)
+            """
             output = model.perm(output)
             output = model.conv1(output)
             output = F.relu(output)
@@ -395,6 +401,7 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
             output = model.conv2(output)
             output = F.relu(output)
             output = model.pool(output)
+            """
 
         x_t = output[:, ii[0], ii[1]]
         predict_test = model_svm.predict(x_t)
@@ -429,7 +436,7 @@ def main():
     parser.add_argument('-DS', '--dataseed', type=int, default=1, metavar='S')
     parser.add_argument('-MS', '--modelseed', type=int, default=1, metavar='S')
     parser.add_argument('-GG', '--groupgraph', default='D:/code/DTI_data/network_distance/grouplevel.edge')
-    parser.add_argument('-DP', '--datapath', default='D:/code/DTI_data/output/local_metrics/')
+    parser.add_argument('-DP', '--datapath', default='D:/code/DTI_data/output/local_metrics_ocs/')
     parser.add_argument('-M', '--model', default='model.pth', metavar='PATH', help='path to model')
     args = parser.parse_args()
 
@@ -466,23 +473,13 @@ def main():
     momentum = [0.85]
     drop_array = [0]
 
-    result_path = 'D:/code/DTI_data/result/cross_validation.csv'
-    df = pd.DataFrame(columns=['learn_rate', 'weight_decay', 'momentum',
-                      'drop_rate', 'accuracy', 'loss', 'epoch'])
-    df.to_csv(result_path, header=True, index=False)
-
     for lr in lr_array:
         for w_d in weight_decay:
             for mmt in momentum:
                 for drop in drop_array:
                     print("lr: ", lr, "w_d: ", w_d, "momentum: ", mmt, "drop: ", drop)
-                    acc, loss, epoch = cross_validate(args, dataset, 20, lr, w_d, mmt, drop, perm, net_parameters)
+                    acc = cross_validate(args, dataset, 20, lr, w_d, mmt, drop, perm, net_parameters)
                     print("lr: ", lr, "w_d:  ", w_d, "momentum: ", mmt, "drop: ", drop, "acc: ", acc)
-                    df = pd.read_csv(result_path, header=0)
-                    df = df.append({'learn_rate': lr, 'weight_decay': w_d,
-                                    'momentum': mmt, 'drop_rate': drop, 'accuracy': acc,
-                                    'loss': loss, 'epoch': epoch}, ignore_index=True)
-                    df.to_csv(result_path, header=True, index=False)
 
 
 if __name__ == "__main__":

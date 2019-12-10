@@ -5,8 +5,8 @@ import networkx as nx
 import numpy as np
 
 
-DATA_PATH = "D:/code/DTI_data/network_FN/"
-OUTPUT_PATH = "D:/code/DTI_data/output/local_metrics/"
+DATA_PATH = "D:/code/DTI_data/Site-SI_FN/"
+OUTPUT_PATH = "D:/code/DTI_data/output/local_metrics_SI/"
 
 sub_dirs = [x[0] for x in os.walk(DATA_PATH)]
 sub_dirs.pop(0)
