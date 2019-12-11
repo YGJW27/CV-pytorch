@@ -61,17 +61,34 @@ class Graph_MaxPool(nn.Module):
         return x
 
 
+class Permute(nn.Module):
+    def __init__(self, indices):
+        super(Permute, self).__init__()
+        self.indices = indices
+
+    def __call__(self, input):
+        B, C, V = input.shape
+        V_perm = len(self.indices)
+        input_append = torch.zeros([B, C, V_perm - V], dtype=input.dtype, device=input.device)
+        input_new = torch.cat((input, input_append), dim=2)
+        input_new_perm = input_new[:, :, self.indices]
+        return input_new_perm
+
+
 class Net(nn.Module):
     def __init__(self, net_parameters, drop, pretrain_params):
         super(Net, self).__init__()
 
         # network parameters
-        IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, L = net_parameters
-        FC1_IN = CL2_F * IN_V // 16
+        IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC_F, L, perm = net_parameters
+        FC_IN = CL2_F * len(perm) // 16
         self.drop = drop
 
         # Batch Normalizaton Layer
         self.norm = nn.BatchNorm1d(IN_C, affine=False)
+
+        # Perm Layer
+        self.perm = Permute(perm)
 
         # Graph Convolutional Layer 1
         self.conv1 = Graph_Conv(IN_C, CL1_F, CL1_K, L[0])
@@ -80,8 +97,10 @@ class Net(nn.Module):
         scale = np.sqrt(2.0 / (Fin + Fout))
         self.conv1.kernel.weight.data = pretrain_params['GCL1_w']
         self.conv1.kernel.bias.data = pretrain_params['GCL1_b']
-        self.conv1.kernel.weight.requires_grad_(False)
-        self.conv1.kernel.bias.requires_grad_(False)
+        self.conv1.kernel.weight.requires_grad_(True)
+        self.conv1.kernel.bias.requires_grad_(True)
+        # self.conv1.kernel.weight.data.uniform_(-scale, scale)
+        # self.conv1.kernel.bias.data.fill_(0.0)
 
         # Graph Convolutional Layer 2
         self.conv2 = Graph_Conv(CL1_F, CL2_F, CL2_K, L[2])
@@ -90,33 +109,32 @@ class Net(nn.Module):
         scale = np.sqrt(2.0 / (Fin + Fout))
         self.conv2.kernel.weight.data = pretrain_params['GCL2_w']
         self.conv2.kernel.bias.data = pretrain_params['GCL2_b']
-        self.conv2.kernel.weight.requires_grad_(False)
-        self.conv2.kernel.bias.requires_grad_(False)
+        self.conv2.kernel.weight.requires_grad_(True)
+        self.conv2.kernel.bias.requires_grad_(True)
+        # self.conv2.kernel.weight.data.uniform_(-scale, scale)
+        # self.conv2.kernel.bias.data.fill_(0.0)
 
-        # Full Connected Layer 1
-        self.fc1 = nn.Linear(FC1_IN, FC1_F)
-        Fin = FC1_IN
-        Fout = FC1_F
+        # Full Connected Layer
+        self.fc = nn.Linear(FC_IN, FC_F)
+        Fin = FC_IN
+        Fout = FC_F
         scale = np.sqrt(2.0 / (Fin + Fout))
-        self.fc1.weight.data = pretrain_params['FC1_w']
-        self.fc1.bias.data = pretrain_params['FC1_b']
-        self.fc1.weight.requires_grad_(True)
-        self.fc1.bias.requires_grad_(True)
-
-        # Full Connected Layer 2
-        self.fc2 = nn.Linear(FC1_F, FC2_F)
-        Fin = FC1_F
-        Fout = FC2_F
-        scale = np.sqrt(2.0 / (Fin + Fout))
-        self.fc2.weight.data.uniform_(-scale, scale)
-        self.fc2.bias.data.fill_(0.0)
+        self.fc.weight.data.uniform_(-scale, scale)
+        self.fc.bias.data.fill_(0.0)
 
         # Max Pooling
         self.pool = Graph_MaxPool(4)
 
+        # Sparse Layer
+        sparse = torch.zeros((CL2_F, len(perm) // 16), dtype=torch.float32)
+        self.sparse = nn.Parameter(sparse, requires_grad=True)
+
     def forward(self, x):
         # Batch Normalization Layer
         x = self.norm(x)
+
+        # Perm Layer
+        x = self.perm(x)
 
         # Convolutional Layer 1
         x = self.conv1(x)
@@ -130,12 +148,8 @@ class Net(nn.Module):
 
         # Full Connected Layer 1
         x = x.view(x.shape[0], -1)
-        x = self.fc1(x)
-        x = torch.sigmoid(x)
         x = F.dropout(x, p=self.drop, training=self.training)
-
-        # Full Connected Layer 2
-        x = self.fc2(x)
+        x = self.fc(x)
 
         return x
 
@@ -172,7 +186,7 @@ class MRI_Dataset(torch.utils.data.Dataset):
         if self.transform is not None:
             pic = self.transform(pic)
 
-        return pic, target
+        return pic, target, idx
 
     def __len__(self):
         return len(self.data_list)
@@ -183,34 +197,22 @@ class Array_To_Tensor(object):
         return torch.from_numpy(input).float()
 
 
-class Perm_Data(object):
-    def __init__(self, indices):
-        self.indices = indices
-
-    def __call__(self, pic):
-        C, V = pic.shape
-        V_perm = len(self.indices)
-        pic_append = torch.zeros([C, V_perm - V], dtype=pic.dtype)
-        pic_new = torch.cat((pic, pic_append), dim=1)
-        pic_new_perm = pic_new[:, self.indices]
-        return pic_new_perm
-
-
-def train(model, device, train_loader, optimizer, weight_decay, epoch):
+def train(model, device, train_loader, optimizer, weight_decay, sparse_rate, epoch):
     model.train()
-    for batch_idx, (data, target) in enumerate(train_loader):
+    for batch_idx, (data, target, idx) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
 
         # Forward
         output = model(data)
         cls_loss = F.cross_entropy(output, target)
-        reg_loss = 0
+        L2_loss = 0
+        L1_loss = 0
         for name, param in model.named_parameters():
             if ('weight' in name) and ('fc' in name):
-                reg_loss += torch.norm(param)
-
-        loss = cls_loss + weight_decay * reg_loss
+                L2_loss += torch.norm(param)
+                L1_loss += torch.norm(param, p=1)
+        loss = cls_loss + weight_decay * L2_loss + sparse_rate * L1_loss
 
         # Backword
         loss.backward()
@@ -230,7 +232,7 @@ def test(model, device, test_loader):
     test_loss = 0
     correct = 0
     with torch.no_grad():
-        for data, target in test_loader:
+        for data, target, idx in test_loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
             test_loss += F.cross_entropy(output, target, reduction='sum').item()
@@ -246,7 +248,7 @@ def test(model, device, test_loader):
     return accuracy, test_loss
 
 
-def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
+def cross_validate(args, dataset, cv, lr, w_d, s_d, drop, perm, net_parameters):
     use_cuda = args.cuda and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
 
@@ -264,36 +266,35 @@ def cross_validate(args, dataset, cv, lr, w_d, mmt, drop, perm, net_parameters):
 
         model = Net(net_parameters, drop, pretrain_params)
         model.to(device)
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=mmt)
+
         print('--------Cross Validation: {}/{} --------\n'.format(idx + 1, cv))
         kwargs = {'num_workers': 3, 'pin_memory': True} if use_cuda else {}
         train_loader = torch.utils.data.DataLoader(
             MRI_Dataset(dataset[train_idx],
                         transform=transforms.Compose([
-                            Array_To_Tensor(),
-                            Perm_Data(perm)
+                            Array_To_Tensor()
                         ])),
             batch_size=args.batchsize, shuffle=True, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
             MRI_Dataset(dataset[test_idx],
                         transform=transforms.Compose([
-                            Array_To_Tensor(),
-                            Perm_Data(perm)
+                            Array_To_Tensor()
                         ])),
-            batch_size=args.batchsize, shuffle=True, **kwargs)
+            batch_size=test_idx.size, shuffle=True, **kwargs)
         loss_list = []
-        filename = 'D:/code/DTI_data/result/' + "lr" + str(lr) \
-            + "_wd" + str(w_d) + "_mmt" + str(mmt) + "_drop" \
+        filename = "D:/code/DTI_data/result/" + "lr" + str(lr) \
+            + "_wd" + str(w_d) + "_sd" + str(s_d) + "_drop" \
             + str(drop) + "_cv" + str(idx) + ".csv"
 
         for epoch in range(1, args.epochs + 1):
-            train(model, device, train_loader, optimizer, w_d, epoch)
+            lr_decay = lr * np.exp(-epoch / args.epochs)
+            print("lr: ", lr_decay)
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr_decay)
+            train(model, device, train_loader, optimizer, w_d, s_d, epoch)
             accuracy, loss = test(model, device, test_loader)
             loss_list.append(loss)
-            if epoch > 200:
-                if (loss_list[-101] - loss_list[-1]) < 1e-5:
-                    break
+
         loss_df = pd.DataFrame(loss_list)
         loss_df.to_csv(filename, header=False, index=False)
         acc_sum += accuracy
@@ -305,11 +306,10 @@ def main():
     parser.add_argument('-B', '--batchsize', type=int, default=20, metavar='B')
     parser.add_argument('-E', '--epochs', type=int, default=5000, metavar='N')
     parser.add_argument('-C', '--cuda', action='store_true', default=False)
-    parser.add_argument('-DS', '--dataseed', type=int, default=2, metavar='S')
-    parser.add_argument('-MS', '--modelseed', type=int, default=2, metavar='S')
+    parser.add_argument('-DS', '--dataseed', type=int, default=4, metavar='S')
+    parser.add_argument('-MS', '--modelseed', type=int, default=4, metavar='S')
     parser.add_argument('-GG', '--groupgraph', default='D:/code/DTI_data/network_distance/grouplevel.edge')
-    parser.add_argument('-DP', '--datapath', default='D:/code/DTI_data/output/')
-    parser.add_argument('-IC', '--channel', type=int, default=3, metavar='N')
+    parser.add_argument('-DP', '--datapath', default='D:/code/DTI_data/output/local_metrics_SI_box/')
     parser.add_argument('-M', '--model', default='model.pth', metavar='PATH', help='path to model')
     args = parser.parse_args()
 
@@ -324,45 +324,52 @@ def main():
         r_L_torch.append(torch.from_numpy(coarsening.rescaled_L(l).toarray()).float())
 
     # net parameters
-    IN_C = args.channel
-    IN_V = len(perm)
-    CL1_F = 16
+    IN_C = 3
+    IN_V = 90
+    CL1_F = 8
     CL1_K = 8
-    CL2_F = 32
+    CL2_F = 8
     CL2_K = 8
-    FC1_F = 50
-    FC2_F = 2
-    net_parameters = [IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC1_F, FC2_F, r_L_torch]
+    FC_F = 2
+    net_parameters = [IN_C, IN_V, CL1_F, CL1_K, CL2_F, CL2_K, FC_F, r_L_torch, perm]
 
     dataset = data_list(args.datapath)
 
-    # 10-fold cross validation dataset split
-    # lr_array = [1e-2, 4e-2, 7e-2, 1e-3, 4e-3, 7e-3, 1e-4]
-    # weight_decay = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5]
-    # momentum = [0.85, 0.9, 0.95]
-    # drop_array = [0.2, 0.3, 0.4, 0.5]
-    lr_array = [1e-3]
+    lr_array = [1e-2]
     weight_decay = [0.01]
-    momentum = [0.85]
+    sparse_decay = [0]
     drop_array = [0.3]
+    batch_size = [24]
+    epoch_array = [50]
 
     result_path = 'D:/code/DTI_data/result/cross_validation.csv'
-    df = pd.DataFrame(columns=['learn_rate', 'weight_decay', 'momentum',
-                      'drop_rate', 'accuracy', 'loss', 'epoch'])
+    df = pd.DataFrame(columns=['learn_rate', 'weight_decay', 'sparse_decay',
+                      'drop_rate', 'accuracy', 'loss', 'epoch', 'batchsize'])
     df.to_csv(result_path, header=True, index=False)
 
-    for lr in lr_array:
-        for w_d in weight_decay:
-            for mmt in momentum:
-                for drop in drop_array:
-                    print("lr: ", lr, "w_d: ", w_d, "momentum: ", mmt, "drop: ", drop)
-                    acc, loss, epoch = cross_validate(args, dataset, 20, lr, w_d, mmt, drop, perm, net_parameters)
-                    print("lr: ", lr, "w_d:  ", w_d, "momentum: ", mmt, "drop: ", drop, "acc: ", acc)
-                    df = pd.read_csv(result_path, header=0)
-                    df = df.append({'learn_rate': lr, 'weight_decay': w_d,
-                                    'momentum': mmt, 'drop_rate': drop, 'accuracy': acc,
-                                    'loss': loss, 'epoch': epoch}, ignore_index=True)
-                    df.to_csv(result_path, header=True, index=False)
+    for ep in epoch_array:
+        args.epochs = ep
+        for bs in batch_size:
+            args.batchsize = bs
+            for lr in lr_array:
+                for w_d in weight_decay:
+                    for s_d in sparse_decay:
+                        for drop in drop_array:
+                            print("lr: ", lr, "w_d: ", w_d, "s_d: ", s_d, "drop: ", drop, "batchsize: ", bs)
+                            acc_total = []
+                            for seed in range(1, 11):
+                                args.dataseed = seed
+                                args.modelseed = seed
+                                print("seed: {}\n".format(seed))
+                                acc, loss, epoch = cross_validate(args, dataset, 20, lr, w_d, s_d, drop, perm, net_parameters)
+                                acc_total.append(acc)
+                                print("acc: {:.1f}%\n".format(acc*100))
+                            print("lr: ", lr, "w_d:  ", w_d, "s_d: ", s_d, "drop: ", drop, "batchsize: ", bs, "avg_acc: ", np.mean(acc_total))
+                            df = pd.read_csv(result_path, header=0)
+                            df = df.append({'learn_rate': lr, 'weight_decay': w_d,
+                                            'sparse_decay': s_d, 'drop_rate': drop, 'accuracy': acc,
+                                            'loss': loss, 'epoch': epoch, 'batchsize': bs, 'runs': acc_total}, ignore_index=True)
+                            df.to_csv(result_path, header=True, index=False)
 
 
 if __name__ == "__main__":
