@@ -336,7 +336,7 @@ def main():
     dataset = data_list(args.datapath)
 
     lr_array = [1e-2]
-    weight_decay = [0.01]
+    weight_decay = [0]
     sparse_decay = [0]
     drop_array = [0.3]
     batch_size = [24]
