@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse
 from scipy.sparse.linalg import eigsh
+import pymc3 as pm
 
 
 def spectral_filter_matrices(sample_path, filter_kernel):
@@ -25,7 +26,7 @@ def spectral_filter_matrices(sample_path, filter_kernel):
             if filters.size == 0:
                 filters = spec_f
             else:
-                filters = scipy.sparse.vstack(filters, spec_f)
+                filters = scipy.sparse.vstack((filters, spec_f))
 
     return filters      # (90*sample_num, 90)
 
@@ -90,11 +91,21 @@ def stimulus_construction(w, type):
         pass
 
 
+def MRF_modelfit(observations, adjacency):
+    # pairwise Markov Random Field
+    mask = ~(adjacency == 0)
+
+
 def main():
     parser = argparse.ArgumentParser(description="feature extraction and selection")
     parser.add_argument('-DP', '--datapath', default='D:/code/DTI_data/network_FN/')
+    parser.add_argument('-GG', '--groupgraph', default='D:/code/DTI_data/network_distance/grouplevel.edge')
     parser.add_argument('-K', '--kernel', type=int, default=1, metavar='K')
+    parser.add_argument('-S', '--seed', type=int, default=1, metavar='S')
     args = parser.parse_args()
+
+    np.random.seed(args.seed)
+    # ggraph = pd.read_csv(args.groupgraph, sep='\t', header=None).to_numpy()
 
     stimulus = np.random.uniform(0, 1, 90)
     stimulus = stimulus / np.linalg.norm(stimulus)
@@ -103,9 +114,12 @@ def main():
     filters = spectral_filter_matrices(args.datapath, filter_kernel=args.kernel)
     response = filters * stimulus
     response = response.reshape(-1, 90)     # every row represents a sample
-    response.toarray()
+
+    # prob_model = MRF_modelfit(response, ggraph)
+
+    response = response.toarray()
     df = pd.DataFrame(response)
-    df.to_csv("D:/code/DTI_data/output/", header=False, index=False)
+    df.to_csv("D:/code/DTI_data/output/K_{}_S_{}.csv".format(args.kernel, args.seed), header=False, index=False)
 
 
 if __name__ == "__main__":
