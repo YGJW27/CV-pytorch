@@ -128,4 +128,3 @@ for idx, (train_idx, test_idx) in enumerate(kf.split(dataset)):
     print("cv: {}/{}, acc.: {:.1f}\n".format(idx, cv, accuracy*100))
     acc_sum += accuracy
 print("total acc.: {:.1f}\n".format(acc_sum / cv * 100))
-
