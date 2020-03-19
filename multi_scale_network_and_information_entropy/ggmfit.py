@@ -1,13 +1,33 @@
 import numpy as np
 import numpy.matlib
 
+def emp_covar_mat(dataset):
+    '''
+    calculate empirical covariance matrix S,
+    dataset is given as 2-dimension numpy array (Sample_Num, Node_Num)
+    '''
+    SN = dataset.shape[0]
+    NN = dataset.shape[1]
+    S = np.matlib.zeros((NN, NN), dtype=dataset.dtype)
+    x_aver = np.sum(dataset, axis=0) / SN
+    x_aver_mat = np.matrix(x_aver)
+    for x in dataset:
+        x_mat = np.matrix(x)
+        S += (x_mat - x_aver_mat).T * (x_mat - x_aver_mat)
+    S = S / SN
+
+    return S
+
 def ggmfit(S, G, maxIter):
     '''
-    MLE for a precision matrix given known zeros in the graph
-    S is empirical covariance matrix, numpy matrix
-    G is graph structure, numpy matrix
+    MLE for a precision matrix given known zeros in the graph,
+    S is empirical covariance matrix, numpy matrix,
+    G is graph structure, numpy matrix,
     Hastie, Tibshirani & Friedman ("Elements" book, 2nd Ed, 2008, p633)
     '''
+    S = np.matrix(S)
+    G = np.matrix(G)
+
     convengenceFlag = False
     p = S.shape[0]
     W = S
@@ -23,7 +43,7 @@ def ggmfit(S, G, maxIter):
 
             # non-zero
             notzero = ~(G[j][:, notj] == 0)
-            notzero = np.squeeze(np.asarray(notzero))
+            notzero = np.squeeze(np.asarray(notzero), axis=0)
             S12_nz = S12[notzero]
             W11_nz = W11[notzero][:, notzero]
 
@@ -46,7 +66,7 @@ def ggmfit(S, G, maxIter):
             break
 
         normW_ = np.linalg.norm(W)
-        if np.abs(normW_ - normW) < 10e-5:
+        if np.abs(normW_ - normW) < 10e-6:
             convengenceFlag = True
     
     W = (W + W.T) / 2
