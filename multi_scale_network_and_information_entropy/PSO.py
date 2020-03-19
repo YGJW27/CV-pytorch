@@ -24,7 +24,7 @@ def velocity(v, pbest_pos, gbest_pos, p_n, b, omega, c1, c2):
 def PSO(w, y, G, part_num, iter_num, omega_max, omega_min, c1, c2):
     b = np.random.uniform(-1, 1, size=(part_num, w.shape[1]))
     b = b / np.linalg.norm(b, axis=1).reshape(-1, 1)
-    v = np.random.uniform(-1, 1, size=(part_num, w.shape[1]))
+    v = np.random.uniform(size=(part_num, w.shape[1]))
     MI = np.zeros(part_num)
     for i in range(part_num):
         MI[i] = fitness(w, y, G, b[i])
@@ -63,8 +63,8 @@ def main():
     G = np.ones((shape, shape))
 
     starttime = time.time()
-    part_num = 5
-    iter_num = 100
+    part_num = 10
+    iter_num = 150
     omega_max = 0.9
     omega_min = 0.4
     c1 = 2
