@@ -1,4 +1,3 @@
-# import torch
 import time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -64,7 +63,7 @@ def PSO(fitness, part_num, iter_num, omega_max, omega_min, c1, c2):
 def main():
     shape = 5
     sample_num = 500
-    random_seed = 3224107+1
+    random_seed = 3224107
     w, y, _ = graph_generate(shape, sample_num, random_seed)
 
     G = np.array([[1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1]])
