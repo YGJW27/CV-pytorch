@@ -24,6 +24,10 @@ def velocity(v, pbest_pos, gbest_pos, p_n, x, omega, c1, c2):
     v = omega * v + \
         c1 * np.random.uniform(size=(p_n, 1)) * (pbest_pos - x) + \
         c2 * np.random.uniform(size=(p_n, 1)) * (gbest_pos.reshape(1, -1).repeat(p_n, axis=0) - x)
+
+    # velocity limit
+    v[v >= 0.1] = 0.1
+    v[v <= -0.1] = -0.1
     return v
 
 
@@ -70,7 +74,7 @@ def main():
     G = np.ones((shape, shape))
 
     starttime = time.time()
-    part_num = 20
+    part_num = 10
     iter_num = 150
     omega_max = 0.9
     omega_min = 0.4
