@@ -1,4 +1,5 @@
 import numpy as np
+import networkx as nx
 
 def graph_generate(shape, sample_num, random_seed=0):
     np.random.seed(0)
@@ -40,6 +41,57 @@ def graph_generate(shape, sample_num, random_seed=0):
     return w, y, (x0_mu, x0_cov, x1_mu, x1_cov)
 
 
+def nxnetwork_generate(shape, sample_num, random_seed=0):
+    G = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed)
+    G0 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+1214)
+    G00 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+121124)
+    G1 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+5212)
+    G11 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+521432)
+    adj = nx.to_numpy_array(G)
+    adj0 = nx.to_numpy_array(G0)
+    adj00 = nx.to_numpy_array(G00)
+    adj1 = nx.to_numpy_array(G1)
+    adj11 = nx.to_numpy_array(G11)
+
+    w_0 = np.zeros(shape=(sample_num, shape, shape))
+    for i, wi in enumerate(w_0):
+        weights_0= np.random.normal(10, 3, size=(shape, shape))
+        weights_0[weights_0 < 1] = 1
+        w_0[i] = np.rint((weights_0 + weights_0.T) / 2) * adj
+
+        weights_0= np.random.normal(1, 1, size=(shape, shape))
+        error = np.random.poisson(5, size=(shape, shape))
+        w_0[i] = np.rint((weights_0 + weights_0.T) / 2) * adj0 + w_0[i] \
+             + np.rint((error + error.T))
+
+        weights_0 = np.random.normal(5, 1, size=(shape, shape))
+        w_0[i] = np.rint((weights_0 + weights_0.T) / 2) * adj00 + w_0[i]
+        np.fill_diagonal(w_0[i], 0)
+
+    w_1 = np.zeros(shape=(sample_num, shape, shape))
+    for i, wi in enumerate(w_1):
+        weights_1 = np.random.normal(10, 3, size=(shape, shape))
+        weights_1[weights_1 < 1] = 1
+        w_1[i] = np.rint((weights_1 + weights_1.T) / 2) * adj
+
+        weights_1 = np.random.normal(1, 0.5, size=(shape, shape))
+        error = np.random.poisson(5, size=(shape, shape))
+        w_1[i] = np.rint((weights_1 + weights_1.T) / 2) * adj1 + w_1[i] \
+             + np.rint((error + error.T))
+
+        weights_1 = np.random.normal(4.5, 1, size=(shape, shape))
+        w_1[i] = np.rint((weights_1 + weights_1.T) / 2) * adj11 + w_1[i]
+        np.fill_diagonal(w_1[i], 0)
+
+    w = np.concatenate((w_0, w_1))
+    y0 = np.zeros(sample_num)
+    y1 = np.ones(sample_num)
+    y = np.concatenate((y0, y1))
+
+    return w, y, (adj, adj0, adj1)
+
+
 if __name__ == "__main__":
-    w, y, _ = graph_generate(4, 100, random_seed=100)
+    # w, y, _ = graph_generate(4, 100, random_seed=100) shape, sample_num, random_seed=0
+    nxnetwork_generate(4, 100, 123)
     print()

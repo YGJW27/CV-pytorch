@@ -23,14 +23,15 @@ def ggmfit(S, G, maxIter):
     MLE for a precision matrix given known zeros in the graph,
     S is empirical covariance matrix, numpy matrix,
     G is graph structure, numpy matrix,
-    Hastie, Tibshirani & Friedman ("Elements" book, 2nd Ed, 2008, p633)
+    Hastie, Tibshirani & Friedman ("Elements" book, 2nd Ed, 2008, p634)
     '''
     S = np.matrix(S)
     G = np.matrix(G)
 
     convengenceFlag = False
     p = S.shape[0]
-    W = S
+    W = np.copy(S)
+    W = np.matrix(W)
     theta = np.matlib.zeros((p, p), dtype=W.dtype)  # precision matrix
     for i in range(maxIter):
         normW = np.linalg.norm(W)
@@ -51,8 +52,8 @@ def ggmfit(S, G, maxIter):
             beta[notzero] = W11_nz.I * S12_nz
             # W12 = W11 * beta
             W12 = W11 * beta
-            W[notj][:, j] = W12
-            W[j][:, notj] = W12.T
+            W[notj, j] = W12.T      # pay attention to this line.
+            W[j, notj] = W12.T
 
             if (i == (maxIter - 1)) or convengenceFlag:
                 theta22 = 1 / (S22 - W12.T * beta)
@@ -66,18 +67,45 @@ def ggmfit(S, G, maxIter):
             break
 
         normW_ = np.linalg.norm(W)
-        if np.abs(normW_ - normW) < 10e-6:
+        delta = np.abs(normW_ - normW)
+        if delta < 10e-6:
             convengenceFlag = True
     
     W = (W + W.T) / 2
     theta = (theta + theta.T) / 2
 
-    return W, theta, i
+    return W, theta, (i, delta)
+
+
+def ggmfit_gradient(S, G, maxIter):
+    S = np.array(S)
+    G = np.array(G)
+    np.fill_diagonal(G, 1)
+
+    theta = np.linalg.inv(S) * (~(G == 0))
+    for i in range(maxIter):
+        grad = np.linalg.inv(theta) - S
+        grad_constrain = grad * (~(G == 0))
+        theta = theta + grad_constrain * 0.0005 * (1 + 0 * i / maxIter)
+        delta = np.linalg.norm(grad_constrain)
+        if i % 1000 == 0:
+            print("{:.6f}\n".format(delta))
+        if delta < 10e-5:
+            break
+
+    theta = (theta + theta.T) / 2
+    return np.linalg.inv(theta), theta, (i, delta)
+
+
 
 
 def main():
-    S = np.matrix('10,1,5,4; 1,10,2,6; 5,2,10,3; 4,6,3,10', dtype=float)
-    G = np.matrix('0,1,0,1; 1,0,1,0; 0,1,0,1; 1,0,1,0', dtype=float)
+    import pandas as pd
+
+    S_df = pd.read_csv('D:/code/empirical.csv', header=None)
+    G_df = pd.read_csv('D:/code/G.csv', header=None)
+    S = S_df.to_numpy()
+    G = G_df.to_numpy()
     W, theta, i = ggmfit(S, G, 100)
     print(W,'\n', theta, '\n', i, '\n')
 
