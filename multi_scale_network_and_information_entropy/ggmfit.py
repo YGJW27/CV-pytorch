@@ -56,8 +56,7 @@ def ggmfit(S, G, maxIter):
             W[j, notj] = W12.T
 
             if (i == (maxIter - 1)) or convengenceFlag:
-                theta22 = 1 / (S22 - W12.T * beta)
-                assert theta22 >= 0
+                theta22 = max(0, 1 / (S22 - W12.T * beta))
                 theta12 = - beta * theta22
                 theta[j, j] = theta22
                 theta[notj][:, j] = theta12
