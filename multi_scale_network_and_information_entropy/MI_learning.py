@@ -7,10 +7,11 @@ class MI_learning():
         k is the number of feature layer
         '''
         self.funcs = []
+        self.x = x
         for i in range(k):
             fitfunc = fitness(x, y, g)
             self.funcs.append(fitfunc)
-            x = np.matmul(x, x)
+            x = np.matmul(x, self.x)
 
     def learning(self, part_num, iter_num, omega_max, omega_min, c1, c2):
         b_list = []
