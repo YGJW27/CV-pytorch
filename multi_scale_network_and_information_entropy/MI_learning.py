@@ -10,7 +10,8 @@ class MI_learning():
         self.funcs = []
         self.x = x
         for i in range(k):
-            fitfunc = fitness(x/np.mean(x), y, g)
+            scale = np.mean(x[x != 0])
+            fitfunc = fitness(x/scale, y, g)
             self.funcs.append(fitfunc)
             x = np.matmul(x, self.x)
 
