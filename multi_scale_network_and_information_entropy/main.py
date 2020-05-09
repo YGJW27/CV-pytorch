@@ -107,7 +107,7 @@ def main():
 
     # PSO parameters
     part_num = 30
-    iter_num = 1
+    iter_num = 2000
     omega_max = 0.9
     omega_min = 0.4
     c1 = 2
