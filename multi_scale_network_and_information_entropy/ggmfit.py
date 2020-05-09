@@ -1,5 +1,6 @@
 import numpy as np
 import numpy.matlib
+import scipy.stats
 
 def emp_covar_mat(dataset):
     '''
@@ -96,6 +97,36 @@ def ggmfit_gradient(S, G, maxIter):
     return np.linalg.inv(theta), theta, (i, delta)
 
 
+def graph_mine(x, y, sparse_rate):
+    shape = x.shape
+    if sparse_rate == 1:
+        return np.ones((shape[1], shape[2]))
+
+    x = x.reshape(shape[0], -1)
+    x0 = x[y == 0]
+    x1 = x[y == 1]
+    t_value, p_value = scipy.stats.ttest_ind(x0, x1, axis=0, equal_var=False, nan_policy='omit')
+    p_mat = p_value.reshape(shape[1], shape[2])
+    np.fill_diagonal(p_mat, 1)
+    assert np.all(p_mat == p_mat.T) == 1
+    g = sparse_graph(p_mat, sparse_rate)
+
+    return g
+
+
+def sparse_graph(mat, sparse_rate):
+    shape = mat.shape
+    graph = np.zeros(shape)
+    graph[np.arange(0, shape[0]), np.argmin(mat, axis=1)] = 1
+    graph[np.argmin(mat, axis=1), np.arange(0, shape[0])] = 1
+
+    mat = mat.reshape(-1)
+    sort_idx = np.argsort(mat)
+    threshold = mat[sort_idx[int(np.ceil((shape[0] * (shape[1] - 1)) * sparse_rate))]]
+    graph[(mat <= threshold).reshape(shape[0], shape[1])] = 1
+    assert np.all(graph == graph.T) == 1
+    
+    return graph
 
 
 def main():
