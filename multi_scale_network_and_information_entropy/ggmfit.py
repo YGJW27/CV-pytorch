@@ -107,7 +107,7 @@ def graph_mine(x, y, sparse_rate):
     x1 = x[y == 1]
     t_value, p_value = scipy.stats.ttest_ind(x0, x1, axis=0, equal_var=False, nan_policy='omit')
     p_mat = p_value.reshape(shape[1], shape[2])
-    np.fill_diagonal(p_mat, 1)
+    p_mat[np.isnan(p_mat)] = 1
     assert np.all(p_mat == p_mat.T) == 1
     g = sparse_graph(p_mat, sparse_rate)
 
