@@ -45,13 +45,25 @@ def nxnetwork_generate(shape, sample_num, random_seed=0):
     G = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed)
     G0 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+1214)
     G00 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+121124)
+    G000 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+66324)
+    G0000 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+2124) # shape10
+    G00000 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+345324) # shape10
     G1 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+5212)
     G11 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+521432)
+    G111 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+98332)
+    G1111 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+56634) # shape10
+    G11111 = nx.watts_strogatz_graph(shape, shape-1, 0.3, seed=random_seed+13523) # shape10
     adj = nx.to_numpy_array(G)
     adj0 = nx.to_numpy_array(G0)
     adj00 = nx.to_numpy_array(G00)
+    adj000 = nx.to_numpy_array(G000)
+    adj0000 = nx.to_numpy_array(G0000)
+    adj00000 = nx.to_numpy_array(G00000)
     adj1 = nx.to_numpy_array(G1)
     adj11 = nx.to_numpy_array(G11)
+    adj111 = nx.to_numpy_array(G111)
+    adj1111 = nx.to_numpy_array(G1111)
+    adj11111 = nx.to_numpy_array(G11111)
 
     w_0 = np.zeros(shape=(sample_num, shape, shape))
     for i, wi in enumerate(w_0):
@@ -66,6 +78,15 @@ def nxnetwork_generate(shape, sample_num, random_seed=0):
 
         weights_0 = np.random.normal(5, 1, size=(shape, shape))
         w_0[i] = np.rint((weights_0 + weights_0.T) / 2) * adj00 + w_0[i]
+
+        weights_0 = np.random.normal(3, 0.6, size=(shape, shape))
+        w_0[i] = np.rint((weights_0 + weights_0.T) / 2) * adj000 + w_0[i]
+
+        errorx = np.random.normal(3, 2, size=(shape, shape))    # shape10
+        w_0[i] = w_0[i] + np.rint((errorx + errorx.T))          # shape10
+        errorxx = np.random.uniform(0, 8, size=(shape, shape))  # shape10
+        w_0[i] = w_0[i] + np.rint((errorxx + errorxx.T))        # shape10
+
         np.fill_diagonal(w_0[i], 0)
 
     w_1 = np.zeros(shape=(sample_num, shape, shape))
@@ -81,6 +102,15 @@ def nxnetwork_generate(shape, sample_num, random_seed=0):
 
         weights_1 = np.random.normal(4.5, 1, size=(shape, shape))
         w_1[i] = np.rint((weights_1 + weights_1.T) / 2) * adj11 + w_1[i]
+
+        weights_1 = np.random.normal(3, 0.2, size=(shape, shape))
+        w_1[i] = np.rint((weights_1 + weights_1.T) / 2) * adj111 + w_1[i]
+
+        errorx = np.random.normal(3, 2, size=(shape, shape))    # shape10
+        w_1[i] = w_1[i] + np.rint((errorx + errorx.T))          # shape10
+        errorxx = np.random.uniform(0, 8, size=(shape, shape))  # shape10
+        w_1[i] = w_1[i] + np.rint((errorxx + errorxx.T))        # shape10
+
         np.fill_diagonal(w_1[i], 0)
 
     w = np.concatenate((w_0, w_1))
