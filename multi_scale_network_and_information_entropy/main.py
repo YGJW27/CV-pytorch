@@ -82,7 +82,13 @@ def main():
     node3 = np.where(region==3)[0]
     node4 = np.where(region==4)[0]
     node5 = np.where(region==5)[0]
-    
+
+    x1 = np.tanh(x1 / 10)
+    x2 = np.tanh(x2 / 10)
+    x3 = np.tanh(x3 / 10)
+    x4 = np.tanh(x4 / 10)
+    x5 = np.tanh(x5 / 10)
+
     # ggraph = pd.read_csv(GRAPH_PATH, sep='\t', header=None).to_numpy()
     # g1 = np.matrix(ggraph[node1, :][:, node1])
     # g2 = np.matrix(ggraph[node2, :][:, node2])
