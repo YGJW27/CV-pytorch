@@ -120,6 +120,9 @@ def sparse_graph(mat, sparse_rate):
     graph[np.arange(0, shape[0]), np.argmin(mat, axis=1)] = 1
     graph[np.argmin(mat, axis=1), np.arange(0, shape[0])] = 1
 
+    if sparse_rate == 0:
+        return graph
+
     mat = mat.reshape(-1)
     sort_idx = np.argsort(mat)
     threshold = mat[sort_idx[int(np.ceil((shape[0] * (shape[1] - 1)) * sparse_rate))]]

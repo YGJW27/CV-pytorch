@@ -18,8 +18,6 @@ from MI_learning import *
 
 
 def main():
-    NODE_PATH = "D:/code/DTI_data/network_distance/AAL_90_num.node"
-    GRAPH_PATH = "D:/code/DTI_data/network_distance/grouplevel.edge"
     output_path = "D:/code/mutual_information_toy_output/shape_6_randseed_tG_sr1/"
     shape = 6
     sample_num = 100

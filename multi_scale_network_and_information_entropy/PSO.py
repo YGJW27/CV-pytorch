@@ -52,14 +52,18 @@ def PSO(fitness, part_num, iter_num, omega_max, omega_min, c1, c2):
     x = np.random.uniform(-1, 1, size=(part_num, dim))
     x = x / np.linalg.norm(x, axis=1).reshape(-1, 1)
     v = np.random.uniform(-0.1, 0.1, size=(part_num, dim))
+    fit_list = []
+
     fit = np.zeros(part_num)
     for i in range(part_num):
         fit[i] = fitness(x[i])
+    fit_list.append(fit)
     pbest_pos = x
     pbest_fit = fit
     gbest_pos = x[np.argmax(fit)]
     gbest_fit = np.max(fit)
     fit_best_list = [gbest_fit]
+    b_track = [gbest_pos]
 
     for it in range(iter_num):
         omega = omega_max - (omega_max - omega_min) * it / iter_num
@@ -71,12 +75,13 @@ def PSO(fitness, part_num, iter_num, omega_max, omega_min, c1, c2):
         fit_next = np.zeros(part_num)
         for i in range(part_num):
             fit_next[i] = fitness(x[i])
-
+        fit_list.append(fit_next)
         pbest_pos[fit_next > fit] = x[fit_next > fit]
         fit[fit_next > fit] = fit_next[fit_next > fit]
         gbest_pos = x[np.argmax(fit)]
         gbest_fit = np.max(fit)
         fit_best_list.append(gbest_fit)
+        b_track.append(gbest_pos)
 
         convergence_particle = np.sum(np.linalg.norm(
             pbest_pos - gbest_pos.reshape(1, -1).repeat(part_num, axis=0),
@@ -88,7 +93,7 @@ def PSO(fitness, part_num, iter_num, omega_max, omega_min, c1, c2):
             print("iter: {:d}, \t convergence particle: {:d}\n".format(
                 it, convergence_particle))
 
-    return gbest_pos, np.array(fit_best_list)
+    return gbest_pos, np.array(fit_best_list), np.array(fit_list).T, np.array(b_track)
 
 
 def main():

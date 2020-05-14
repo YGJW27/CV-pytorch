@@ -19,58 +19,62 @@ from MI_learning import *
 
 def main_1():
     output_path = 'D:/code/mutual_information_toy_output/'
-    shape = 4
+    shape = 6
     sample_num = 2000
     random_seed = 123456
     df = pd.DataFrame(columns=['part_num', 'iter_num', 'b', 'MI'])
-    for randi in range(1):
-        w, y, _ = graph_generate(shape, sample_num, random_seed+randi)
+    for randi in range(10):
+        w, y, _ = nxnetwork_generate(shape, sample_num, random_seed+randi)
 
-        G = np.array([[1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1], [1, 1, 1, 1]])
-        G = np.ones((shape, shape))
+        G = graph_mine(w, y, 0.3)
 
         starttime = time.time()
-        part_num_array = [5, 10, 20, 30]
+        # part_num_array = [5, 10, 20, 30]
+        part_num_array = [20]
         for part_num in part_num_array:
-            iter_num = 5000
+            iter_num = 2000
             omega_max = 0.9
             omega_min = 0.4
             c1 = 2
             c2 = 2
 
-            w = np.matmul(w, w)
             fitness_func = fitness(w, y, G)
-            b, MI_array = PSO(fitness_func, part_num, iter_num, omega_max, omega_min, c1, c2)
+            b, MI_array, fit_list = PSO(fitness_func, part_num, iter_num, omega_max, omega_min, c1, c2)
             endtime = time.time()
             runtime = endtime - starttime
             print('time: {:.2f}'.format(runtime))
             print(b, MI_array[-1])
 
+            # fit_df = pd.DataFrame(fit_list)
+            # fit_df.to_csv(output_path + \
+            #     'w1_dim_{:d}_samplenum_{:d}_partnum_30_fitlist.csv'.format(shape, sample_num),
+            #     header=False,
+            #     index=False
+            #     )
+
             df = df.append(pd.DataFrame(np.array([part_num, iter_num, b, MI_array]).reshape(1, -1), columns=['part_num', 'iter_num', 'b', 'MI']))
             plt.plot(MI_array)
 
     df.to_csv(output_path + \
-        'w2_dim_{:d}_samplenum_{:d}_partnum_5102030_noconstrained.csv'.format(shape, sample_num),
+        'w1_dim_{:d}_samplenum_{:d}_partnum_20_MIlist_10times.csv'.format(shape, sample_num),
         index=False
         )
     plt.savefig(output_path + \
-        'w2_dim_{:d}_samplenum_{:d}_partnum_5102030_noconstrained.png'.format(shape, sample_num),
+        'w1_dim_{:d}_samplenum_{:d}_partnum_20_MIlist_10times.png'.format(shape, sample_num),
         )
     plt.show()
 
 
 def main_2():
-    NODE_PATH = "D:/code/DTI_data/network_distance/AAL_90_num.node"
-    GRAPH_PATH = "D:/code/DTI_data/network_distance/grouplevel.edge"
     output_path = "D:/code/mutual_information_toy_output/"
-    shape = 10
-    sample_num = 100
+    shape = 6
+    sample_num = 2000
     np.random.seed(123)
     random_seed = 123456
     
     # MI learning parameter
-    k = 10
-    sparse_rate = 1.0
+    k = 6
+    sparse_rate = 0.0
 
     x, y, _ = nxnetwork_generate(shape, sample_num, random_seed)
     g = graph_mine(x, y, sparse_rate)
@@ -79,7 +83,7 @@ def main_2():
 
     # PSO parameters
     part_num = 20
-    iter_num = 1000
+    iter_num = 2000
     omega_max = 0.9
     omega_min = 0.4
     c1 = 2
@@ -91,6 +95,8 @@ def main_2():
     kf = KFold(n_splits=cv, shuffle=True, random_state=random_seed)
     acc_sum = 0
     for idx, (train_idx, test_idx) in enumerate(kf.split(x)):
+        if idx != 0:
+            continue
         x_train = x[train_idx]
         x_test = x[test_idx]
         y_train = y[train_idx]
@@ -99,53 +105,62 @@ def main_2():
         fs_num = 10
         pca_num = 10
 
-        model = MI_learning(x_train, y_train, g, k)
-        b_list, MI_list = model.learning(part_num, iter_num, omega_max, omega_min, c1, c2)
+        # model = MI_learning(x_train, y_train, g, k)
+        # b_list, MI_list, b_track_list = model.learning(part_num, iter_num, omega_max, omega_min, c1, c2)
 
-        b_df = pd.DataFrame(b_list)
-        MI_df = pd.DataFrame(MI_list)
-        b_df.to_csv(output_path + 'shape_{:d}_k_{:d}_sparserate_{:.1f}_b_list_cv_{:d}.csv'.format(shape, k, sparse_rate, idx), header=False,
-            index=False
-            )
-        MI_df.to_csv(output_path + 'shape_{:d}_k_{:d}_sparserate_{:.1f}_MI_list_cv_{:d}.csv'.format(shape, k, sparse_rate, idx), header=False,
-            index=False
-            )
+        # b_track_df = pd.DataFrame(b_track_list[0])
+        # b_track_df.to_csv(output_path + 'shape_{:d}_k_1_sparserate_{:.1f}_b_track_cv_{:d}.csv'.format(shape, sparse_rate, idx), header=False,
+        #     index=False
+        #     )
 
-        f1_train = []
-        f1_test = []
-        for b in b_list:
-            f_train = np.matmul(x_train, b)
-            f1_train.append(f_train)
-            f_test = np.matmul(x_test, b)
-            f1_test.append(f_test)
-        f1_train = np.array(f1_train)
-        f1_train = np.transpose(f1_train, (1, 0, 2))
-        f1_train = np.reshape(f1_train, (f1_train.shape[0], -1))
-        f1_test = np.array(f1_test)
-        f1_test = np.transpose(f1_test, (1, 0, 2))
-        f1_test = np.reshape(f1_test, (f1_test.shape[0], -1))
+        # b_df = pd.DataFrame(b_list)
+        # MI_df = pd.DataFrame(MI_list)
+        # b_df.to_csv(output_path + 'shape_{:d}_k_{:d}_sparserate_{:.1f}_b_list_cv_{:d}.csv'.format(shape, k, sparse_rate, idx), header=False,
+        #     index=False
+        #     )
+        # MI_df.to_csv(output_path + 'shape_{:d}_k_{:d}_sparserate_{:.1f}_MI_list_cv_{:d}.csv'.format(shape, k, sparse_rate, idx), header=False,
+        #     index=False
+        #     )
 
-        # fisher scoring
-        class0 = f1_train[y_train == 0]
-        class1 = f1_train[y_train == 1]
-        Mu0 = np.mean(class0, axis=0)
-        Mu1 = np.mean(class1, axis=0)
-        Mu = np.mean(f1_train, axis=0)
-        Sigma0 = np.var(class0, axis=0)
-        Sigma1 = np.var(class1, axis=0)
-        n0 = class0.shape[0]
-        n1 = class1.shape[0]
-        fisher_score = (n0 * (Mu0 - Mu)**2 + n1 * (Mu1 - Mu)**2) / (n0 * Sigma0 + n1 * Sigma1)
-        sort_idx = np.argsort(fisher_score)[::-1]
-        sort_idx = sort_idx[:fs_num]
+        # f1_train = []
+        # f1_test = []
+        # for b in b_list:
+        #     f_train = np.matmul(x_train, b)
+        #     f1_train.append(f_train)
+        #     f_test = np.matmul(x_test, b)
+        #     f1_test.append(f_test)
+        # f1_train = np.array(f1_train)
+        # f1_train = np.transpose(f1_train, (1, 0, 2))
+        # f1_train = np.reshape(f1_train, (f1_train.shape[0], -1))
+        # f1_test = np.array(f1_test)
+        # f1_test = np.transpose(f1_test, (1, 0, 2))
+        # f1_test = np.reshape(f1_test, (f1_test.shape[0], -1))
+
+        # # fisher scoring
+        # class0 = f1_train[y_train == 0]
+        # class1 = f1_train[y_train == 1]
+        # Mu0 = np.mean(class0, axis=0)
+        # Mu1 = np.mean(class1, axis=0)
+        # Mu = np.mean(f1_train, axis=0)
+        # Sigma0 = np.var(class0, axis=0)
+        # Sigma1 = np.var(class1, axis=0)
+        # n0 = class0.shape[0]
+        # n1 = class1.shape[0]
+        # fisher_score = (n0 * (Mu0 - Mu)**2 + n1 * (Mu1 - Mu)**2) / (n0 * Sigma0 + n1 * Sigma1)
+        # sort_idx = np.argsort(fisher_score)[::-1]
+        # print("sort_idx: ", sort_idx)
+        # print()
+        # print("graph structure: ", g)
+        # print()
+        # sort_idx = sort_idx[:fs_num]
         
-        f1_train = f1_train[:, sort_idx]
-        f1_test = f1_test[:, sort_idx]
+        # f1_train = f1_train[:, sort_idx]
+        # f1_test = f1_test[:, sort_idx]
 
 
-        # # matrix to array
-        # f1_train = x_train.reshape(x_train.shape[0], -1)
-        # f1_test = x_test.reshape(x_test.shape[0], -1)
+        # matrix to array
+        f1_train = x_train.reshape(x_train.shape[0], -1)
+        f1_test = x_test.reshape(x_test.shape[0], -1)
 
         # Norm
         scaler = StandardScaler()
@@ -153,11 +168,11 @@ def main_2():
         f1scale_train = scaler.transform(f1_train)
         f1scale_test = scaler.transform(f1_test)
 
-        # # PCA
-        # pca = PCA(n_components=pca_num)
-        # pca.fit(f1scale_train)
-        # f1scale_train = pca.transform(f1scale_train)
-        # f1scale_test = pca.transform(f1scale_test)
+        # PCA
+        pca = PCA(n_components=pca_num)
+        pca.fit(f1scale_train)
+        f1scale_train = pca.transform(f1scale_train)
+        f1scale_test = pca.transform(f1scale_test)
 
         # # Set the parameters by cross-validation
         # tuned_parameters = [{'kernel': ['rbf'], 'gamma': [1e-3, 1e-4, 1e-5],

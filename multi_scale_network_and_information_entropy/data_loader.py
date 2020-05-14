@@ -13,14 +13,6 @@ def graph_generate(shape, sample_num, random_seed=0):
     np.fill_diagonal(x1_cov, np.random.randint(2, 4, size=shape))
 
     np.random.seed(random_seed)
-    
-
-    # x0_mu = np.array([15, 7, 12, 8])
-    # x0_cov = np.array([[3, 0.2, 0.5, 0.3], [0.2, 1, 0, 0.1], [0.5, 0, 2, 0.5], [0.3, 0.1, 0.5, 2]])
-    # # x0_cov = np.array([[1, 0.2, 0.5], [0.2, 1, 0], [0.5, 0, 1]])
-    # x1_mu = np.array([13, 8, 11, 10])
-    # x1_cov = np.array([[1, 0.6, 1, 0.2], [0.6, 0.6, 0, 0.1], [1, 0, 3, 0.3], [0.2, 0.1, 0.3, 3]])
-    # x1_cov = np.array([[1, 0.6, 0.9], [0.6, 0.6, 0], [0.9, 0, 3]])
 
     x0 = np.random.multivariate_normal(x0_mu, x0_cov, shape * sample_num)
     x1 = np.random.multivariate_normal(x1_mu, x1_cov, shape * sample_num)
@@ -82,10 +74,10 @@ def nxnetwork_generate(shape, sample_num, random_seed=0):
         weights_0 = np.random.normal(3, 0.6, size=(shape, shape))
         w_0[i] = np.rint((weights_0 + weights_0.T) / 2) * adj000 + w_0[i]
 
-        errorx = np.random.normal(3, 2, size=(shape, shape))    # shape10
-        w_0[i] = w_0[i] + np.rint((errorx + errorx.T))          # shape10
-        errorxx = np.random.uniform(0, 8, size=(shape, shape))  # shape10
-        w_0[i] = w_0[i] + np.rint((errorxx + errorxx.T))        # shape10
+        # errorx = np.random.normal(3, 2, size=(shape, shape))    # shape10
+        # w_0[i] = w_0[i] + np.rint((errorx + errorx.T))          # shape10
+        # errorxx = np.random.uniform(0, 8, size=(shape, shape))  # shape10
+        # w_0[i] = w_0[i] + np.rint((errorxx + errorxx.T))        # shape10
 
         np.fill_diagonal(w_0[i], 0)
 
@@ -106,10 +98,10 @@ def nxnetwork_generate(shape, sample_num, random_seed=0):
         weights_1 = np.random.normal(3, 0.2, size=(shape, shape))
         w_1[i] = np.rint((weights_1 + weights_1.T) / 2) * adj111 + w_1[i]
 
-        errorx = np.random.normal(3, 2, size=(shape, shape))    # shape10
-        w_1[i] = w_1[i] + np.rint((errorx + errorx.T))          # shape10
-        errorxx = np.random.uniform(0, 8, size=(shape, shape))  # shape10
-        w_1[i] = w_1[i] + np.rint((errorxx + errorxx.T))        # shape10
+        # errorx = np.random.normal(3, 2, size=(shape, shape))    # shape10
+        # w_1[i] = w_1[i] + np.rint((errorx + errorx.T))          # shape10
+        # errorxx = np.random.uniform(0, 8, size=(shape, shape))  # shape10
+        # w_1[i] = w_1[i] + np.rint((errorxx + errorxx.T))        # shape10
 
         np.fill_diagonal(w_1[i], 0)
 
