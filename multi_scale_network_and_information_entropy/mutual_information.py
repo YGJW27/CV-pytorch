@@ -2,7 +2,7 @@ from ggmfit import *
 
 def ggm_entropy(theta):
     NN = theta.shape[0]
-    ent = NN / 2.0 * np.log2(2 * np.pi * np.e) - 1 / 2.0 * np.log2(np.linalg.det(theta))
+    ent = NN / 2.0 * np.log2(2 * np.pi * np.e) - 1 / 2.0 * np.log2(max(np.linalg.det(theta), 10e-8))
     return ent
 
 
