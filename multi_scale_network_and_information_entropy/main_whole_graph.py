@@ -17,6 +17,7 @@ from ggmfit import *
 from mutual_information import *
 from PSO import *
 from MI_learning import *
+from paper_network import *
 
 
 def data_list(sample_path):
@@ -70,6 +71,8 @@ def main():
         y = target.numpy()
         idx = idx.numpy()
 
+    node_idx = nodes_selection()
+    x = x[:, node_idx, :][:, :, node_idx]
     x = np.tanh(x / 10)
 
     # graph mine
@@ -105,7 +108,7 @@ def main():
         y_test = y[test_idx]
 
         model = MI_learning(x_train, y_train, g, k)
-        b_list, MI_list = model.learning(part_num, iter_num, omega_max, omega_min, c1, c2)
+        b_list, MI_list, _ = model.learning(part_num, iter_num, omega_max, omega_min, c1, c2)
         b_df = pd.DataFrame(b_list)
         MI_df = pd.DataFrame(MI_list)
         b_df.to_csv(output_path + 'wholegraph_b_list_sparserate_{:.1f}_cv_{:d}.csv'.format(sparse_rate, idx), header=False,
