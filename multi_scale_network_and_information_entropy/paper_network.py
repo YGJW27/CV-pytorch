@@ -39,7 +39,7 @@ def nodes_selection():
         (50, 52),
         (50, 90),
         (52, 90)])
-
+        # [3 5 7 9 13 15 19 20 29 30 32 34 36 37 38 44 50 52 55 60 66 67 68 70 72 73 74 75 77 78 85 89 90]
     adj_G = nx.to_numpy_array(G)
 
     assert np.all(adj_G == adj_G.T)
