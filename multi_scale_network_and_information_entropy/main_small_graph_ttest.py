@@ -83,13 +83,13 @@ def main():
     np.random.seed(seed)
     starttime = time.time()
 
+    fs_num = 20
+
     # 10-fold validation
     acc_sum = 0
     cv = 10
     kf = KFold(n_splits=cv, shuffle=True, random_state=seed)
     for idx, (train_idx, test_idx) in enumerate(kf.split(dataset)):
-        if not idx == args.idx:
-            continue
         x_train = x[train_idx]
         x_test = x[test_idx]
         y_train = y[train_idx]
@@ -100,12 +100,13 @@ def main():
         x_test = x_test.reshape(x_test.shape[0], -1)
 
         x0 = x_train[y_train == 0]
-        x1 = x_train[y_test == 1]
+        x1 = x_train[y_train == 1]
         t_value, p_value = scipy.stats.ttest_ind(x0, x1, axis=0, equal_var=False, nan_policy='omit')
-        p_mat[np.isnan(p_mat)] = 1
-        assert np.all(p_mat == p_mat.T) == 1
-        g = sparse_graph(p_mat, sparse_rate)
-
+        p_value[np.isnan(p_value)] = 1
+        sort_idx = np.argsort(p_value)
+        
+        f_train = x_train[:, sort_idx[:fs_num]]
+        f_test = x_test[:, sort_idx[:fs_num]]
 
         # Norm
         scaler = StandardScaler()
