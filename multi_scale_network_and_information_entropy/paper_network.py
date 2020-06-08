@@ -45,3 +45,8 @@ def nodes_selection():
     assert np.all(adj_G == adj_G.T)
     connected_nodes = np.where(np.sum(adj_G, axis=0) != 0)[0]
     return connected_nodes
+
+
+def nodes_selection_sex():
+    connected_nodes = np.array([17, 22, 23, 24, 25, 26, 30, 32, 38, 43, 44, 47, 56, 62, 63, 65, 66, 73, 81, 84, 85])
+    return connected_nodes

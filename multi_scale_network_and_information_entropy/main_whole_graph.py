@@ -59,10 +59,8 @@ def main():
     parser.add_argument('-R', '--sparserate', type=float, default=0.2, metavar='S')
     args = parser.parse_args()
 
-    DATA_PATH = "D:/code/DTI_data/network_FN/"
-    NODE_PATH = "D:/code/DTI_data/network_distance/AAL_90_num.node"
-    GRAPH_PATH = "D:/code/DTI_data/network_distance/grouplevel.edge"
-    output_path = "D:/code/mutual_information_MDD_output/"
+    DATA_PATH = "D:/code/DTI_data/Site-SI_FN/"
+    output_path = "D:/code/mutual_information_sex_output/"
     filelist = data_list(DATA_PATH)
     dataset = MRI_Dataset(filelist)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1000, shuffle=False)
@@ -71,7 +69,7 @@ def main():
         y = target.numpy()
         idx = idx.numpy()
 
-    node_idx = nodes_selection()
+    node_idx = nodes_selection_sex()
     x = x[:, node_idx, :][:, :, node_idx]
     x = np.tanh(x / 10)
 
