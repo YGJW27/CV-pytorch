@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from sklearn.model_selection import KFold
 from sklearn.svm import SVC, LinearSVC
@@ -57,12 +58,12 @@ class MRI_Dataset(torch.utils.data.Dataset):
 def main():
     parser = argparse.ArgumentParser(description="MDD")
     parser.add_argument('-I', '--idx', type=int, default=0, metavar='I')
-    parser.add_argument('-R', '--sparserate', type=float, default=0.4, metavar='S')
-    parser.add_argument('-M', '--learnmethod', type=str, default="pca")
+    parser.add_argument('-R', '--sparserate', type=float, default=0.3, metavar='S')
+    parser.add_argument('-M', '--learnmethod', type=str, default="mi")
     args = parser.parse_args()
 
-    DATA_PATH = "D:/code/DTI_data/ADNI3_ADvsCN_FN/"
-    output_path = "D:/code/mutual_information_ADNI3_output/AD_vs_CN/"
+    DATA_PATH = "D:/code/DTI_data/ADNI3_ADvsMCI_FN/"
+    output_path = "D:/code/mutual_information_ADNI3_output/AD_vs_MCI/"
     filelist = data_list(DATA_PATH)
     dataset = MRI_Dataset(filelist)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1000, shuffle=False)
@@ -87,9 +88,9 @@ def main():
     starttime = time.time()
 
     # MI learning
-    k = 4
-    fs_num = 20
-    pca_num = 20
+    k = 3
+    fs_num = 30
+    pca_num = 10
 
     # PSO parameters
     part_num = 30
@@ -101,29 +102,26 @@ def main():
 
     # 10-fold validation
     acc_sum = 0
+    TN_sum = 0
+    TP_sum = 0
+    sort_sum = np.zeros((k*x.shape[1]))
+    fs_sum = np.zeros(k*x.shape[1])
+    b_count = np.zeros((k, x.shape[1]))
     cv = 10
     kf = KFold(n_splits=cv, shuffle=True, random_state=seed)
     for idx, (train_idx, test_idx) in enumerate(kf.split(dataset)):
-        if args.learnmethod == "mi":
-            if not idx == args.idx:
-                continue
         x_train = x[train_idx]
         x_test = x[test_idx]
         y_train = y[train_idx]
         y_test = y[test_idx]
+        P_num = np.sum(y_test)
+        N_num = y_test.shape[0] - P_num
 
         # MI learning
         if args.learnmethod == "mi":
-            model = MI_learning(x_train, y_train, g, k)
-            b_list, MI_list, _ = model.learning(part_num, iter_num, omega_max, omega_min, c1, c2)
-            b_df = pd.DataFrame(b_list)
-            MI_df = pd.DataFrame(MI_list)
-            b_df.to_csv(output_path + 'wholegraph_b_list_sparserate_{:.1f}_cv_{:d}.csv'.format(sparse_rate, idx), header=False,
-                index=False
-                )
-            MI_df.to_csv(output_path + 'wholegraph_MI_list_sparserate_{:.1f}_cv_{:d}.csv'.format(sparse_rate, idx), header=False,
-                index=False
-                )
+            b_df = pd.read_csv(output_path + 'wholegraph_b_list_sparserate_{:.1f}_cv_{:d}.csv'.format(sparse_rate, idx), header=None)
+            b_list = b_df.to_numpy()
+            b_list = b_list[:k]
 
             # machine learning
             f_train = []
@@ -150,10 +148,40 @@ def main():
             n1 = class1.shape[0]
             fisher_score = (n0 * (Mu0 - Mu)**2 + n1 * (Mu1 - Mu)**2) / (n0 * Sigma0 + n1 * Sigma1)
             sort_idx = np.argsort(fisher_score)[::-1]
+
+
+            b_list[b_list>=0.3] = 1
+            b_list[b_list<0.3] = 0
+            b_count = b_count + b_list
+
+
+            value = np.arange(0, k*x.shape[1])
+            value = value + 1
+            sort_value = np.zeros(k*x.shape[1])
+            sort_value[sort_idx] = value
+            sort_sum = sort_sum + sort_value
+            sort_value = np.reshape(sort_value, (k,x.shape[1])).T
+
+            f, ax = plt.subplots(figsize=(6,6))
+
+            ax = sns.heatmap(sort_value, annot=True, vmin=1, vmax=36, annot_kws={"fontsize":14}, cbar=False)
+            ax.tick_params(left=False, bottom=False)
+            plt.savefig('D:/feature_selection_{:d}.jpg'.format(idx))
+
+
             sort_idx = sort_idx[:fs_num]
             
             f_train = f_train[:, sort_idx]
             f_test = f_test[:, sort_idx]
+
+
+
+            # p-value analysis
+            x0 = f_train[y_train == 0]
+            x1 = f_train[y_train == 1]
+            t_value, p_value = scipy.stats.ttest_ind(x0, x1, axis=0, equal_var=False, nan_policy='omit')
+            p_value[np.isnan(p_value)] = 1
+
 
             # Norm
             scaler = StandardScaler()
@@ -181,13 +209,14 @@ def main():
         else:
             print("Method Input Error!")
 
-
+        
         # Ramdom Forest
         rf = RandomForestClassifier(max_depth=5, random_state=0)
         model = rf.fit(fscale_train, y_train)
 
+
         # SVC
-        # svc = SVC(kernel='rbf', random_state=1, gamma=0.1, C=1)
+        # svc = SVC(kernel='rbf', random_state=1, gamma=0.0001, C=1000)
         # model = svc.fit(fscale_train, y_train)
 
         predict_train = model.predict(fscale_train)
@@ -196,6 +225,11 @@ def main():
 
         predict = model.predict(fscale_test)
         correct = np.sum(predict == y_test)
+
+        TN = np.sum(predict[y_test == 0] == y_test[y_test == 0])
+        TP = np.sum(predict[y_test == 1] == y_test[y_test == 1])
+        TN_sum = TN_sum + TN
+        TP_sum = TP_sum + TP
         # print()
         # print(classification_report(y_test, predict))
         accuracy = correct / test_idx.size
@@ -204,8 +238,27 @@ def main():
         print("total acc.: {:.1f}\n".format(acc_sum / cv * 100))
         print()
 
+    Acc = (TN_sum + TP_sum) / y.shape[0]
+    Sen = TP_sum / np.sum(y)
+    Spe = TN_sum / (y.shape[0] - np.sum(y))
 
+    print("ACC: {:.2f}%, SEN: {:.2f}%, SPE: {:.2f}%".format(Acc * 100, Sen * 100, Spe * 100))
 
+    
+    sort_idx = np.argsort(sort_sum)
+    value = np.arange(0, k*x.shape[1])
+    value = value + 1
+    sort_value = np.zeros(k*x.shape[1])
+    sort_value[sort_idx] = value
+    sort_value = np.reshape(sort_value, (k,x.shape[1])).T
+
+    f, ax = plt.subplots(figsize=(6,6))
+
+    ax = sns.heatmap(sort_value, annot=True, vmin=1, vmax=36, annot_kws={"fontsize":14}, cbar=False)
+    ax.tick_params(left=False, bottom=False)
+    plt.savefig('D:/feature_selection_aver.jpg')
+
+    print(b_count)
 
     endtime = time.time()
     runtime = endtime - starttime

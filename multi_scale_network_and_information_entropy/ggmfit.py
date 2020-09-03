@@ -132,6 +132,19 @@ def sparse_graph(mat, sparse_rate):
     return graph
 
 
+def noise_filter(w, thres_rate):
+    w_non_zero = np.sum(w, axis=0) != 0
+    w_thres = np.mean(w) * thres_rate
+    w_mean = np.mean(w, axis=0)
+    w_mask = np.ones(shape=w_mean.shape)
+    w_mask[w_mean < w_thres] = 0
+    w = w * w_mask
+    w_non_zero_afterthres = np.sum(w, axis=0) != 0
+    del_weights = (np.sum(w_non_zero) - np.sum(w_non_zero_afterthres)) / np.sum(w_non_zero)
+    print("delete weights: ", del_weights)
+    return w
+
+
 def main():
     import pandas as pd
 

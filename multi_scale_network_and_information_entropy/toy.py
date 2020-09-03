@@ -74,7 +74,7 @@ def main_2():
     
     # MI learning parameter
     k = 6
-    sparse_rate = 0.0
+    sparse_rate = 0.2
 
     x, y, _ = nxnetwork_generate(shape, sample_num, random_seed)
     g = graph_mine(x, y, sparse_rate)
@@ -122,6 +122,7 @@ def main_2():
         #     index=False
         #     )
 
+
         # f1_train = []
         # f1_test = []
         # for b in b_list:
@@ -158,9 +159,9 @@ def main_2():
         # f1_test = f1_test[:, sort_idx]
 
 
-        # matrix to array
-        f1_train = x_train.reshape(x_train.shape[0], -1)
-        f1_test = x_test.reshape(x_test.shape[0], -1)
+        # # matrix to array
+        # f1_train = x_train.reshape(x_train.shape[0], -1)
+        # f1_test = x_test.reshape(x_test.shape[0], -1)
 
         # Norm
         scaler = StandardScaler()
@@ -168,11 +169,11 @@ def main_2():
         f1scale_train = scaler.transform(f1_train)
         f1scale_test = scaler.transform(f1_test)
 
-        # PCA
-        pca = PCA(n_components=pca_num)
-        pca.fit(f1scale_train)
-        f1scale_train = pca.transform(f1scale_train)
-        f1scale_test = pca.transform(f1scale_test)
+        # # PCA
+        # pca = PCA(n_components=pca_num)
+        # pca.fit(f1scale_train)
+        # f1scale_train = pca.transform(f1scale_train)
+        # f1scale_test = pca.transform(f1scale_test)
 
         # # Set the parameters by cross-validation
         # tuned_parameters = [{'kernel': ['rbf'], 'gamma': [1e-3, 1e-4, 1e-5],

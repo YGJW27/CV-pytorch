@@ -9,6 +9,7 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestClassifier
 
 from ggmfit import *
 from mutual_information import *
@@ -18,23 +19,16 @@ from MI_learning import *
 
 
 def main():
-    output_path = "D:/code/mutual_information_toy_output/shape_6_randseed_tG_sr1/"
+    output_path = "D:/ASUS/code/mutual_information_toy_output/shape_6_randseed_tG_sr0.2/"
     shape = 6
-    sample_num = 100
+    sample_num = 2000
     np.random.seed(123)
     random_seed = 123456
     x, y, _ = nxnetwork_generate(shape, sample_num, random_seed)
-    g = graph_mine(x, y, 1)
+    # g = graph_mine(x, y, 0.2)
 
     starttime = time.time()
 
-    # PSO parameters
-    part_num = 20
-    iter_num = 500
-    omega_max = 0.9
-    omega_min = 0.4
-    c1 = 2
-    c2 = 2
 
     # 10-fold validation
     cv = 10
@@ -46,8 +40,8 @@ def main():
         y_train = y[train_idx]
         y_test = y[test_idx]
 
-        fs_num = 6
-        pca_num = 6
+        fs_num = 10
+        pca_num = 10
 
         b_df = pd.read_csv(output_path + 'shape_{:d}_b_list_cv_{:d}.csv'.format(shape, idx), header=None)
         b_list = b_df.to_numpy()
@@ -137,6 +131,8 @@ def main():
         #     y_true, y_pred = y_test, clf.predict(f1scale_test)
         #     print(classification_report(y_true, y_pred))
         #     print()
+
+
 
         # SVC
         svc = SVC(kernel='rbf', random_state=1, gamma=0.001, C=1000)
