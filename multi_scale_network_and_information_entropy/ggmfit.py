@@ -60,8 +60,8 @@ def ggmfit(S, G, maxIter):
                 theta22 = max(0, 1 / (S22 - W12.T * beta))
                 theta12 = - beta * theta22
                 theta[j, j] = theta22
-                theta[notj][:, j] = theta12
-                theta[j][:, notj] = theta12.T
+                theta[notj, j] = theta12.T
+                theta[j, notj] = theta12.T
 
         if convengenceFlag:
             break
