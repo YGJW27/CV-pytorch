@@ -55,8 +55,8 @@ class MRI_Dataset(torch.utils.data.Dataset):
 
 
 def main():
-    DATA_PATH = "D:/code/DTI_data/ADNI3_ADvsMCI_FN/"
-    output_path = "D:/code/mutual_information_ADNI3_output/AD_vs_MCI/"
+    DATA_PATH = "D:/code/DTI_data/ADNI3_MCIvsCN_FN/"
+    output_path = "D:/code/mutual_information_ADNI3_output/MCI_vs_CN/"
     filelist = data_list(DATA_PATH)
     dataset = MRI_Dataset(filelist)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=1000, shuffle=False)
@@ -65,15 +65,15 @@ def main():
         y = target.numpy()
         idx = idx.numpy()
 
-    node_idx = nodes_selection_ADNI()
-    x = x[:, node_idx, :][:, :, node_idx]
+    # node_idx = nodes_selection_ADNI()
+    # x = x[:, node_idx, :][:, :, node_idx]
     x = np.tanh(x / 10)
 
     seed = 123456
     np.random.seed(seed)
     starttime = time.time()
 
-    fs_num = 20
+    fs_num = 90
 
     # 10-fold validation
     acc_sum = 0

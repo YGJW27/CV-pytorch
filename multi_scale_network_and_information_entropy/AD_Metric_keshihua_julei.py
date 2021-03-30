@@ -1,24 +1,49 @@
 import os
 import glob
-import time
 import argparse
+import torch
+import seaborn as sns
+import time
 import pandas as pd
 import numpy as np
-import networkx as nx
-import torch
 import matplotlib.pyplot as plt
+from matplotlib import offsetbox
+from sklearn import (manifold, datasets, decomposition, ensemble, discriminant_analysis, random_projection)
 
 from sklearn.model_selection import KFold
-from sklearn.svm import SVC, LinearSVC
+from sklearn.svm import SVC
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier
 
 from ggmfit import *
 from mutual_information import *
+from data_loader import *
 from PSO import *
 from MI_learning import *
 from paper_network import *
+
+
+
+
+def plot_embedding(X, Y, title=None):
+    x_min, x_max = np.min(X, 0), np.max(X, 0)
+    X = (X - x_min) / (x_max - x_min)
+
+    plt.figure()
+    ax = plt.subplot(111)
+    for i in range(X.shape[0]):
+        plt.scatter(X[i, 0], X[i, 1], marker=('^' if Y[i] else 'o'),
+        edgecolors=plt.cm.Set1(Y[i]),
+        color='')
+
+    plt.xticks([]), plt.yticks([])
+    plt.xlim(-0.1,1.1)
+    plt.ylim(-0.1,1.1)
+    if title is not None:
+        plt.title(title)
 
 
 def data_list(sample_path):
@@ -56,7 +81,8 @@ class MRI_Dataset(torch.utils.data.Dataset):
 
 def main():
     parser = argparse.ArgumentParser(description="MDD")
-    parser.add_argument('-R', '--sparserate', type=float, default=0.4, metavar='S')
+    parser.add_argument('-I', '--idx', type=int, default=0, metavar='I')
+    parser.add_argument('-R', '--sparserate', type=float, default=0.3, metavar='S')
     args = parser.parse_args()
 
     DATA_PATH = "D:/code/DTI_data/ADNI3_ADvsCN_FN/"
@@ -68,8 +94,8 @@ def main():
         y = target.numpy()
         idx = idx.numpy()
 
-    # node_idx = nodes_selection_ADNI()
-    # x = x[:, node_idx, :][:, :, node_idx]
+    node_idx = nodes_selection_ADNI()
+    x = x[:, node_idx, :][:, :, node_idx]
 
     x = noise_filter(x, 0.05)
 
@@ -88,6 +114,10 @@ def main():
     TP_sum = 0
     cv = 10
     kf = KFold(n_splits=cv, shuffle=True, random_state=seed)
+
+    X = np.zeros((x.shape[0], fs_num))
+    Y = np.zeros(x.shape[0])
+
     for idx, (train_idx, test_idx) in enumerate(kf.split(dataset)):
         x_train = x[train_idx]
         x_test = x[test_idx]
@@ -98,7 +128,6 @@ def main():
         f_test = []
         for adj in x_train:
             G = nx.from_numpy_array(adj)
-            print(nx.shortest_path_length(G))
             cluster_coeff = nx.clustering(G)
             degree = G.degree(weight='weight')
             neighbor_degree = nx.average_neighbor_degree(G, weight='weight')
@@ -131,11 +160,8 @@ def main():
             f_array = np.concatenate((coeff_array, degree_array, neighbor_degree_array))
             f_test.append(f_array)
 
-        
-
         f_train = np.array(f_train)
         f_test = np.array(f_test)
-        
 
         # fisher scoring
         class0 = f_train[y_train == 0]
@@ -159,8 +185,10 @@ def main():
         scaler.fit(f_train)
         fscale_train = scaler.transform(f_train)
         fscale_test = scaler.transform(f_test)
-
-
+    
+        X[test_idx] = fscale_test
+        Y[test_idx] = y_test
+        
         # Ramdom Forest
         rf = RandomForestClassifier(max_depth=5, random_state=0)
         model = rf.fit(fscale_train, y_train)
@@ -195,12 +223,15 @@ def main():
 
     print("ACC: {:.2f}%, SEN: {:.2f}%, SPE: {:.2f}%".format(Acc * 100, Sen * 100, Spe * 100))
 
-
-
-
+    
     endtime = time.time()
     runtime = endtime - starttime
     print(runtime)
+
+    # Draw
+    X_draw = manifold.TSNE(n_components=2, init='pca', random_state=0).fit_transform(X)
+    plot_embedding(X_draw, Y)
+    plt.show()
 
 
 if __name__ == "__main__":

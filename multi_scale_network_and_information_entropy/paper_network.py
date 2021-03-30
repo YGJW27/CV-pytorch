@@ -54,11 +54,11 @@ def nodes_selection_sex():
 
 def nodes_selection_ADNI():
     # AD vs. CN
-    # connected_nodes = np.array([9, 18, 37, 38, 39, 40, 43, 45, 50, 53, 61, 65, 70, 72, 73, 74, 82, 87]) # 80
+    # connected_nodes = np.array([31, 35, 36, 38, 39, 40, 53, 61, 62, 65, 70, 82, 84, 86, 87, 89]) # 75
 
     # MCI vs. CN
-    # connected_nodes = np.array([3, 5, 11, 15, 20, 27, 30, 32, 41, 42, 43, 47, 48, 49, 59, 66, 73]) # 90
+    connected_nodes = np.array([4, 11, 15, 19, 20, 27, 32, 37, 44, 47, 48, 67, 69, 71, 73, 75]) # 96
 
     # AD vs. MCI
-    connected_nodes = np.array([0,  9, 10, 16, 47, 54, 55, 62, 64, 70, 72, 82, 84, 86, 87, 88]) # 75
+    # connected_nodes = np.array([0,  9, 10, 16, 47, 54, 55, 62, 64, 70, 72, 82, 84, 86, 87, 88]) # 75
     return connected_nodes

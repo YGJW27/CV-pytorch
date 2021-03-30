@@ -1,25 +1,49 @@
-# main.py for MI learning
 import os
 import glob
-import time
 import argparse
+import torch
+import seaborn as sns
+import time
 import pandas as pd
 import numpy as np
-import torch
 import matplotlib.pyplot as plt
-import seaborn as sns
+from matplotlib import offsetbox
+from sklearn import (manifold, datasets, decomposition, ensemble, discriminant_analysis, random_projection)
 
 from sklearn.model_selection import KFold
-from sklearn.svm import SVC, LinearSVC
+from sklearn.svm import SVC
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import classification_report
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier
 
 from ggmfit import *
 from mutual_information import *
+from data_loader import *
 from PSO import *
 from MI_learning import *
 from paper_network import *
+
+
+
+
+def plot_embedding(X, Y, title=None):
+    x_min, x_max = np.min(X, 0), np.max(X, 0)
+    X = (X - x_min) / (x_max - x_min)
+
+    plt.figure()
+    ax = plt.subplot(111)
+    for i in range(X.shape[0]):
+        plt.scatter(X[i, 0], X[i, 1], marker=('^' if Y[i] else 'o'),
+        edgecolors=plt.cm.Set1(Y[i]),
+        color='')
+
+    plt.xticks([]), plt.yticks([])
+    plt.xlim(-0.1,1.1)
+    plt.ylim(-0.1,1.1)
+    if title is not None:
+        plt.title(title)
 
 
 def data_list(sample_path):
@@ -59,7 +83,7 @@ def main():
     parser = argparse.ArgumentParser(description="MDD")
     parser.add_argument('-I', '--idx', type=int, default=0, metavar='I')
     parser.add_argument('-R', '--sparserate', type=float, default=0.3, metavar='S')
-    parser.add_argument('-M', '--learnmethod', type=str, default="pca")
+    parser.add_argument('-M', '--learnmethod', type=str, default="mi")
     args = parser.parse_args()
 
     DATA_PATH = "D:/code/DTI_data/ADNI3_ADvsMCI_FN/"
@@ -73,7 +97,7 @@ def main():
         idx = idx.numpy()
 
     node_idx = nodes_selection_ADNI()
-    # x = x[:, node_idx, :][:, :, node_idx]
+    x = x[:, node_idx, :][:, :, node_idx]
 
     x = noise_filter(x, 0.05)
 
@@ -90,7 +114,7 @@ def main():
     # MI learning
     k = 3
     fs_num = 30
-    pca_num = 5
+    pca_num = 20
 
     # PSO parameters
     part_num = 30
@@ -109,6 +133,10 @@ def main():
     b_count = np.zeros((k, x.shape[1]))
     cv = 10
     kf = KFold(n_splits=cv, shuffle=True, random_state=seed)
+    
+    X = np.zeros((x.shape[0], fs_num if args.learnmethod == "mi" else pca_num))
+    Y = np.zeros(x.shape[0])
+
     for idx, (train_idx, test_idx) in enumerate(kf.split(dataset)):
         x_train = x[train_idx]
         x_test = x[test_idx]
@@ -150,23 +178,6 @@ def main():
             sort_idx = np.argsort(fisher_score)[::-1]
 
 
-            b_list[b_list>=0.3] = 1
-            b_list[b_list<0.3] = 0
-            b_count = b_count + b_list
-
-
-            value = np.arange(0, k*x.shape[1])
-            value = value + 1
-            sort_value = np.zeros(k*x.shape[1])
-            sort_value[sort_idx] = value
-            sort_sum = sort_sum + sort_value
-            sort_value = np.reshape(sort_value, (k,x.shape[1])).T
-
-            f, ax = plt.subplots(figsize=(6,6))
-
-            ax = sns.heatmap(sort_value, annot=True, vmin=1, vmax=36, annot_kws={"fontsize":14}, cbar=False)
-            ax.tick_params(left=False, bottom=False)
-            plt.savefig('D:/feature_selection_{:d}.jpg'.format(idx))
 
 
             sort_idx = sort_idx[:fs_num]
@@ -209,6 +220,8 @@ def main():
         else:
             print("Method Input Error!")
 
+        X[test_idx] = fscale_test
+        Y[test_idx] = y_test
         
         # Ramdom Forest
         rf = RandomForestClassifier(max_depth=5, random_state=0)
@@ -245,24 +258,14 @@ def main():
     print("ACC: {:.2f}%, SEN: {:.2f}%, SPE: {:.2f}%".format(Acc * 100, Sen * 100, Spe * 100))
 
     
-    sort_idx = np.argsort(sort_sum)
-    value = np.arange(0, k*x.shape[1])
-    value = value + 1
-    sort_value = np.zeros(k*x.shape[1])
-    sort_value[sort_idx] = value
-    sort_value = np.reshape(sort_value, (k,x.shape[1])).T
-
-    f, ax = plt.subplots(figsize=(6,6))
-
-    ax = sns.heatmap(sort_value, annot=True, vmin=1, vmax=36, annot_kws={"fontsize":14}, cbar=False)
-    ax.tick_params(left=False, bottom=False)
-    plt.savefig('D:/feature_selection_aver.jpg')
-
-    print(b_count)
-
     endtime = time.time()
     runtime = endtime - starttime
     print(runtime)
+
+    # Draw
+    X_draw = manifold.TSNE(n_components=2, init='pca', random_state=0).fit_transform(X)
+    plot_embedding(X_draw, Y)
+    plt.show()
 
 
 if __name__ == "__main__":
